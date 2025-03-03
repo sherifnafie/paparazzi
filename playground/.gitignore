@@ -1,2 +1,3 @@
-# Ignore the image_folder_labelled directory
-image_folder_labelled/
+synthetic_depth_maps/
+labelled_images_oai/
+labelled_images_oai_DAV2/
