@@ -1,0 +1,2 @@
+- What grid size do we use to generate synthetic labels?
+- Which CNN architecture fits best with our needs (tradeoff between size and speed) (hyperparameter optimization loop) (Bayesian Optimization)
