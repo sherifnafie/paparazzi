@@ -189,11 +189,11 @@ def compose_output_image(original_img, original_overlay, depth_img, depth_overla
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--images_folder", type=str, default="images_folder",
+    parser.add_argument("--images_folder", type=str, default=r"C:\Users\beren\Documents\paparazzi\playground\images_folder",
                         help="Folder containing original RGB images named <long number>.jpg")
-    parser.add_argument("--depth_folder", type=str, default="synthetic_depth_maps",
+    parser.add_argument("--depth_folder", type=str, default=r"C:\Users\beren\Documents\paparazzi\playground\depth_predictions_DAV2",
                         help="Folder containing greyscale depth images named depth_<long number>.jpg")
-    parser.add_argument("--output_folder", type=str, default="labelled_images_oai_extended",
+    parser.add_argument("--output_folder", type=str, default=r"C:\Users\beren\Documents\paparazzi\playground\labelled_images_oai_extended",
                         help="Folder to save the output composite images and JSON summary")
     parser.add_argument("--grid_width", type=int, default=9, help="Number of grid columns")
     parser.add_argument("--grid_height", type=int, default=9, help="Number of grid rows")
@@ -234,9 +234,9 @@ def main():
             print(f"Could not read {filename} or {depth_filename}, skipping.")
             continue
 
-        # Rotate images 90° CCW to fix orientation.
-        original_bgr = cv2.rotate(original_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        depth_gray = cv2.rotate(depth_gray, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        # # Rotate images 90° CCW to fix orientation.
+        # original_bgr = cv2.rotate(original_bgr, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        # depth_gray = cv2.rotate(depth_gray, cv2.ROTATE_90_COUNTERCLOCKWISE)
 
         h1, w1, _ = original_bgr.shape
         h2, w2 = depth_gray.shape
