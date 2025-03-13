@@ -39,13 +39,13 @@ def load_data(image_folder, labels_data, img_size=(520, 240)):
         # Append the image to the images list
         images.append(img_yuv)
 
+        # Save the YUV grid of the first image to a text file
         if i == 0:
-            # Save the entire YUV image grid (each pixel with [Y, U, V] values) of the first image to a text file
             yuv_output_path = os.path.join(OUTPUT_FOLDER, "first_image_yuv_grid.txt")
             with open(yuv_output_path, "w") as f:
-                # Write the YUV array as 3D grid
-                np.savetxt(f, img_yuv.reshape((-1, 3)), fmt="%d")  # Flatten the image into a list of [Y, U, V] tuples
-            print(f"YUV image grid of first image saved to {yuv_output_path}")
+                # Write the YUV array in the desired format
+                f.write(f"{img_yuv.tolist()}\n")
+            print(f"YUV image grid of the first image saved to {yuv_output_path}")
         
         # Get the label grid
         label_grid = np.array(data["scores"])  # Safety grid
@@ -210,14 +210,13 @@ else:
     first_pred = model.predict(first_img_yuv)
     first_pred = first_pred.reshape(y_train.shape[1:])  # Reshape to match output grid
 
-    # Save the safety grid of the first image in a text file
+    # Save the safety grid of the first image in a text file (terminal-like format)
     safety_grid_output_path = os.path.join(OUTPUT_FOLDER, "first_image_safety_grid.txt")
     with open(safety_grid_output_path, "w") as f:
-        for row in first_pred[0]:  # Iterate through the predicted safety grid
-            f.write(" ".join([f"{val:.4f}" for val in row]) + "\n")
+        # Write the safety grid to the file preserving the structure
+        f.write(f"{first_pred.tolist()}\n")
+    print(f"Safety grid of first image saved to {safety_grid_output_path}")
     
-    print(f"Safety grid of the first image saved to {safety_grid_output_path}")
-
     # Overlay safety grid
     pred_overlay = overlay_safety_grid(first_img, first_pred)
 
