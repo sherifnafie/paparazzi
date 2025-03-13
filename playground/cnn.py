@@ -15,6 +15,8 @@ IMAGE_FOLDER = r"C:\Users\beren\Documents\paparazzi\playground\videocap_simulati
 LABELS_JSON = r"C:\Users\beren\Documents\paparazzi\playground\videocap_simulation_round1_labels\results.json"
 OUTPUT_FOLDER = r"C:\Users\beren\Documents\paparazzi\playground\cnn_ouput_images"
 VIDEO_OUTPUT = r"C:\Users\beren\Documents\paparazzi\playground\predictions.mp4"
+TEXT_OUTPUT = r"C:\Users\beren\Documents\paparazzi\playground"
+
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # Load labels
@@ -41,7 +43,7 @@ def load_data(image_folder, labels_data, img_size=(520, 240)):
 
         # Save the YUV grid of the first image to a text file
         if i == 0:
-            yuv_output_path = os.path.join(OUTPUT_FOLDER, "first_image_yuv_grid.txt")
+            yuv_output_path = os.path.join(TEXT_OUTPUT, "first_image_yuv_grid.txt")
             with open(yuv_output_path, "w") as f:
                 # Write the YUV array in the desired format
                 f.write(f"{img_yuv.tolist()}\n")
@@ -68,29 +70,38 @@ y_train = y[:halfway_point]
 X_test = X[halfway_point:]
 y_test = y[halfway_point:]
 
-# CNN Model with output layer named explicitly
-def build_model(input_shape):
+# Build the CNN model with 3 fully connected layers and ~100k parameters
+def build_model(optimizer='adam', conv1_filters=16, conv1_stride_y=32, conv1_stride_x=32, conv2_filters=32, conv3_filters=64):
     model = models.Sequential([ 
-        # Conv1: First convolution layer with larger strides and 1x1 kernel
-        layers.Conv2D(16, (1, 1), strides=(40, 32), activation='relu', input_shape=input_shape),  # Higher stride
+        # Conv1: First convolution layer with 1x1 kernel and smaller number of filters
+        layers.Conv2D(conv1_filters, (1, 1), strides=(conv1_stride_y, conv1_stride_x), activation='relu', input_shape=(240, 520, 3)),  
         layers.MaxPooling2D((2, 2)),  # Optional pooling after Conv1
-        
-        # Conv2: Second convolution layer with smaller filters
-        layers.Conv2D(58, (1, 1), strides=(1, 1), activation='relu'),  # Smaller stride
+
+        # Conv2: Second convolution layer with a slightly larger filter count
+        layers.Conv2D(conv2_filters, (1, 1), strides=(1, 1), activation='relu'),
         layers.MaxPooling2D((2, 2)),  # Optional pooling after Conv2
-        
-        # Conv3: Final convolution layer, channel compression
-        layers.Conv2D(1, (1, 1), strides=(1, 1), activation='sigmoid'),  # Output to match the final grid
-        layers.Flatten(),  # Flatten the final output
-        
-        # Dense layer for final grid output (flattened)
-        layers.Dense(y_train.shape[1] * y_train.shape[2], activation='sigmoid', name='output')  # Named output layer
+
+        # Conv3: Final convolution layer with higher filters (output to fully connected)
+        layers.Conv2D(conv3_filters, (1, 1), strides=(1, 1), activation='relu'),
+        layers.MaxPooling2D((2, 2)),  # Optional pooling after Conv3
+
+        # Flattening before the fully connected layers
+        layers.Flatten(),
+
+        # Fully Connected Layer 1
+        layers.Dense(128, activation='relu'),
+
+        # Fully Connected Layer 2
+        layers.Dense(64, activation='relu'),
+
+        # Fully Connected Layer 3
+        layers.Dense(y_train.shape[1] * y_train.shape[2], activation='sigmoid', name='output')
     ])
-    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+
+    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
     return model
 
-
-model = build_model(X_train.shape[1:])
+model = build_model(optimizer='adam')  # Explicitly passing optimizer
 
 # EarlyStopping callback setup
 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1)
@@ -146,7 +157,7 @@ def save_predicted_images(X_test, y_pred, y_test, output_folder):
 save_predicted_images(X_test, y_pred, y_test, OUTPUT_FOLDER)
 
 # Generate video
-def create_video(image_folder, output_video, fps=5):
+def create_video(image_folder, output_video, fps=1):
     images = [img for img in os.listdir(image_folder) if img.endswith(".jpg")]
     images.sort()
     
@@ -211,7 +222,7 @@ else:
     first_pred = first_pred.reshape(y_train.shape[1:])  # Reshape to match output grid
 
     # Save the safety grid of the first image in a text file (terminal-like format)
-    safety_grid_output_path = os.path.join(OUTPUT_FOLDER, "first_image_safety_grid.txt")
+    safety_grid_output_path = os.path.join(TEXT_OUTPUT, "first_image_safety_grid.txt")
     with open(safety_grid_output_path, "w") as f:
         # Write the safety grid to the file preserving the structure
         f.write(f"{first_pred.tolist()}\n")
@@ -221,7 +232,7 @@ else:
     pred_overlay = overlay_safety_grid(first_img, first_pred)
 
     # Save or show the result
-    output_first_pred_path = os.path.join(OUTPUT_FOLDER, "first_image_prediction.jpg")
+    output_first_pred_path = os.path.join(TEXT_OUTPUT, "first_image_prediction.jpg")
     cv2.imwrite(output_first_pred_path, pred_overlay)
     print(f"Prediction on first image saved to {output_first_pred_path}")
 
