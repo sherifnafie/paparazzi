@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Mar 13 16:53:07 2025
+
+@author: armin
+"""
+
+import cv2
+import numpy as np
+import glob
+import time
+
+def detect_horizon_line(image_grayscaled):
+    image_blurred = cv2.GaussianBlur(image_grayscaled, ksize=(3, 3), sigmaX=0)
+
+    _, image_thresholded = cv2.threshold(image_blurred, thresh=0, maxval=1, type=cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+    image_thresholded = image_thresholded - 1
+    image_closed = cv2.morphologyEx(image_thresholded, cv2.MORPH_CLOSE, kernel=np.ones((9, 9), np.uint8))
+
+    return image_closed
+
+def detect_best_path(image):
+    total_left = 0
+    total_right = 0
+
+    for index in range(0, 20):
+        # Get the list of pixels on the centerline of the image
+        line = image[:, int(image.shape[1] / 2) + (index - 10)]
+
+        # Count the number of black pixels
+        black_pixels = np.count_nonzero(line)
+
+        if(index < 10):
+            total_left += black_pixels
+        else:
+            total_right += black_pixels
+
+    if(total_left > total_right):
+        return 'left'
+    else:
+        return 'right'
+
+#Read all the images in the folder under flying_images
+folder_path = r'C:\Users\stefh\PycharmProjects\Micro Uav drone\Ground_segmentation\flying_images\*.jpg'
+
+# Get all jpg images
+jpg_images = glob.glob(folder_path)
+
+for fpath_image in jpg_images:
+    start = time.time()
+
+    image = cv2.imread(fpath_image)
+    image_grayscale = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    image_closed = (detect_horizon_line(image_grayscale))
+
+    #Rotate the images 90 degrees counter clockwise
+    image_closed = cv2.rotate(image_closed, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    image_grayscale = cv2.rotate(image_grayscale, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+    #Draw a red line in the center of both images, from the bottom to the top
+    cv2.line(image_grayscale, (int(image_grayscale.shape[1]/2) - 10, 0), (int(image_grayscale.shape[1]/2) - 10, image_grayscale.shape[0]), (0, 0, 255), 1)
+    cv2.line(image_grayscale, (int(image_grayscale.shape[1] / 2), 0),(int(image_grayscale.shape[1] / 2), image_grayscale.shape[0]), (0, 0, 255), 1)
+    cv2.line(image_grayscale, (int(image_grayscale.shape[1] / 2) + 10, 0),(int(image_grayscale.shape[1] / 2) + 10, image_grayscale.shape[0]), (0, 0, 255), 1)
+
+    #Determine on the line how much percentage is black
+    #Get the height of the image
+    total_pixels = image_closed.shape[0]
+
+    #Get the list of pixels on the centerline of the image
+    centerline = image_closed[:, int(image_closed.shape[1]/2)]
+    left_line = image_closed[:, int(image_closed.shape[1]/2)-10]
+    right_line = image_closed[:, int(image_closed.shape[1]/2)+10]
+
+    #Count the number of black pixels
+    black_pixels_center = np.count_nonzero(centerline)
+    black_pixels_left = np.count_nonzero(left_line)
+    black_pixels_right = np.count_nonzero(right_line)
+
+    if((black_pixels_center + black_pixels_left + black_pixels_right)/(total_pixels * 3)*100 > 50):
+        print('Safe')
+    else:
+        #Pivot the drone
+        angle = detect_best_path(image_closed)
+
+        print('Not safe, pivoting to: {}'.format(angle))
+
+    cv2.imshow('image', image_grayscale)
+    cv2.imshow('image_closed', image_closed)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
