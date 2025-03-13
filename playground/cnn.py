@@ -7,6 +7,8 @@ from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import EarlyStopping
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split  # Import train_test_split
+import tf2onnx
+import onnx
 
 # Paths
 IMAGE_FOLDER = r"C:\Users\beren\Documents\paparazzi\playground\videocap_simulation_round1"
@@ -19,7 +21,7 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 with open(LABELS_JSON, "r") as f:
     labels_data = json.load(f)
 
-# Load images and labels
+# Load images and labels, converting to YUV color space
 def load_data(image_folder, labels_data, img_size=(520, 240)):
     images, labels = [], []
     for filename, data in labels_data.items():
@@ -27,36 +29,56 @@ def load_data(image_folder, labels_data, img_size=(520, 240)):
         if not os.path.exists(img_path):
             continue
         
+        # Read the image
         img = cv2.imread(img_path)
-        img = cv2.resize(img, img_size) / 255.0  # Normalize
-        images.append(img)
         
+        # Convert the image from BGR to YUV
+        img_yuv = cv2.cvtColor(img, cv2.COLOR_BGR2YUV)  # Convert to YUV
+        
+        # Append the image to the images list
+        images.append(img_yuv)
+        
+        # Get the label grid
         label_grid = np.array(data["scores"])  # Safety grid
         labels.append(label_grid)
     
     return np.array(images), np.array(labels)
 
+
 X, y = load_data(IMAGE_FOLDER, labels_data)
 y = np.expand_dims(y, axis=-1)  # Add channel for CNN
 
-# Randomly split data into training (80%) and testing (20%)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+# Split the data into training and testing based on the index
+num_images = len(X)
+halfway_point = num_images // 2
 
-# CNN Model
+X_train = X[:halfway_point]
+y_train = y[:halfway_point]
+
+X_test = X[halfway_point:]
+y_test = y[halfway_point:]
+
+# CNN Model with output layer named explicitly
 def build_model(input_shape):
-    model = models.Sequential([
-        layers.Conv2D(32, (3, 3), activation='relu', input_shape=input_shape),
-        layers.MaxPooling2D((2, 2)),
-        layers.Conv2D(64, (3, 3), activation='relu'),
-        layers.MaxPooling2D((2, 2)),
-        layers.Conv2D(128, (3, 3), activation='relu'),
-        layers.MaxPooling2D((2, 2)),
-        layers.Flatten(),
-        layers.Dense(128, activation='relu'),
-        layers.Dense(y_train.shape[1] * y_train.shape[2], activation='sigmoid'),  # Output size of safety grid
+    model = models.Sequential([ 
+        # Conv1: First convolution layer with larger strides and 1x1 kernel
+        layers.Conv2D(16, (1, 1), strides=(40, 32), activation='relu', input_shape=input_shape),  # Higher stride
+        layers.MaxPooling2D((2, 2)),  # Optional pooling after Conv1
+        
+        # Conv2: Second convolution layer with smaller filters
+        layers.Conv2D(58, (1, 1), strides=(1, 1), activation='relu'),  # Smaller stride
+        layers.MaxPooling2D((2, 2)),  # Optional pooling after Conv2
+        
+        # Conv3: Final convolution layer, channel compression
+        layers.Conv2D(1, (1, 1), strides=(1, 1), activation='sigmoid'),  # Output to match the final grid
+        layers.Flatten(),  # Flatten the final output
+        
+        # Dense layer for final grid output (flattened)
+        layers.Dense(y_train.shape[1] * y_train.shape[2], activation='sigmoid', name='output')  # Named output layer
     ])
     model.compile(optimizer='adam', loss='mse', metrics=['mae'])
     return model
+
 
 model = build_model(X_train.shape[1:])
 
@@ -136,12 +158,60 @@ def create_video(image_folder, output_video, fps=5):
 
 create_video(OUTPUT_FOLDER, VIDEO_OUTPUT)
 
-model.save("cnn_model")  # Saves the model in TensorFlow SavedModel format in current working library
+model.output_names=['output']
 
-import tf2onnx
-import tensorflow as tf
+# Save the model
+model.save(r"C:\Users\beren\Documents\paparazzi\playground\cnn_model.keras")
 
-model = tf.keras.models.load_model("cnn_model")
-onnx_model, _ = tf2onnx.convert.from_keras(model, opset=13)
-with open("cnn_model.onnx", "wb") as f:
+# Convert the trained model to ONNX format using tf2onnx
+onnx_model_path = r"C:\Users\beren\Documents\paparazzi\playground\cnn_model.onnx"
+
+# Convert the model to ONNX format with an explicit output name
+onnx_model, _ = tf2onnx.convert.from_keras(
+    model,
+    opset=13,
+    input_signature=[tf.TensorSpec(shape=[None, 240, 520, 3], dtype=tf.float32)],
+)
+
+# Save the ONNX model
+with open(onnx_model_path, "wb") as f:
     f.write(onnx_model.SerializeToString())
+
+print("Model successfully converted to ONNX format!")
+
+# Verify the ONNX model
+onnx_model = onnx.load(onnx_model_path)
+onnx.checker.check_model(onnx_model)
+print("ONNX model is valid.")
+
+
+# Find the first image in the folder
+image_files = sorted([f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")])
+if not image_files:
+    print("No images found in the folder.")
+else:
+    first_image_path = os.path.join(IMAGE_FOLDER, image_files[0])
+
+    # Load and preprocess the image
+    first_img = cv2.imread(first_image_path)
+    first_img_yuv = cv2.cvtColor(first_img, cv2.COLOR_BGR2YUV)  # Convert to YUV
+    first_img_yuv = np.expand_dims(first_img_yuv, axis=0)  # Add batch dimension
+
+    # Predict
+    first_pred = model.predict(first_img_yuv)
+    first_pred = first_pred.reshape(y_train.shape[1:])  # Reshape to match output grid
+
+    # Overlay safety grid
+    pred_overlay = overlay_safety_grid(first_img, first_pred)
+
+    # Save or show the result
+    output_first_pred_path = os.path.join(OUTPUT_FOLDER, "first_image_prediction.jpg")
+    cv2.imwrite(output_first_pred_path, pred_overlay)
+    print(f"Prediction on first image saved to {output_first_pred_path}")
+
+    # Optionally display the image
+    plt.imshow(cv2.cvtColor(pred_overlay, cv2.COLOR_BGR2RGB))
+    plt.title("Predicted Safety Grid on First Image")
+    plt.axis("off")
+    plt.show()
+
