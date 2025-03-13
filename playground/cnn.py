@@ -24,6 +24,7 @@ with open(LABELS_JSON, "r") as f:
 # Load images and labels, converting to YUV color space
 def load_data(image_folder, labels_data, img_size=(520, 240)):
     images, labels = [], []
+    i = 0
     for filename, data in labels_data.items():
         img_path = os.path.join(image_folder, f"{filename}.jpg")
         if not os.path.exists(img_path):
@@ -37,13 +38,22 @@ def load_data(image_folder, labels_data, img_size=(520, 240)):
         
         # Append the image to the images list
         images.append(img_yuv)
+
+        if i == 0:
+            # Save the entire YUV image grid (each pixel with [Y, U, V] values) of the first image to a text file
+            yuv_output_path = os.path.join(OUTPUT_FOLDER, "first_image_yuv_grid.txt")
+            with open(yuv_output_path, "w") as f:
+                # Write the YUV array as 3D grid
+                np.savetxt(f, img_yuv.reshape((-1, 3)), fmt="%d")  # Flatten the image into a list of [Y, U, V] tuples
+            print(f"YUV image grid of first image saved to {yuv_output_path}")
         
         # Get the label grid
         label_grid = np.array(data["scores"])  # Safety grid
         labels.append(label_grid)
+        
+        i += 1
     
     return np.array(images), np.array(labels)
-
 
 X, y = load_data(IMAGE_FOLDER, labels_data)
 y = np.expand_dims(y, axis=-1)  # Add channel for CNN
@@ -184,7 +194,6 @@ onnx_model = onnx.load(onnx_model_path)
 onnx.checker.check_model(onnx_model)
 print("ONNX model is valid.")
 
-
 # Find the first image in the folder
 image_files = sorted([f for f in os.listdir(IMAGE_FOLDER) if f.endswith(".jpg")])
 if not image_files:
@@ -201,6 +210,14 @@ else:
     first_pred = model.predict(first_img_yuv)
     first_pred = first_pred.reshape(y_train.shape[1:])  # Reshape to match output grid
 
+    # Save the safety grid of the first image in a text file
+    safety_grid_output_path = os.path.join(OUTPUT_FOLDER, "first_image_safety_grid.txt")
+    with open(safety_grid_output_path, "w") as f:
+        for row in first_pred[0]:  # Iterate through the predicted safety grid
+            f.write(" ".join([f"{val:.4f}" for val in row]) + "\n")
+    
+    print(f"Safety grid of the first image saved to {safety_grid_output_path}")
+
     # Overlay safety grid
     pred_overlay = overlay_safety_grid(first_img, first_pred)
 
@@ -214,4 +231,3 @@ else:
     plt.title("Predicted Safety Grid on First Image")
     plt.axis("off")
     plt.show()
-
