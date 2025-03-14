@@ -3994,8 +3994,7 @@ float find_mode_with_buckets(float arr[], int size, float precision) {
 }
 
 
-void model_inference_processed(void) 
-{
+int main() {
   float output_array[1][96];
 
   clock_t start, end;
@@ -4053,5 +4052,5 @@ void model_inference_processed(void)
   // Print speed
   printf("Time taken by function: %f seconds\n", cpu_time_used);
   
-return;
+return 0;
 }

@@ -28,7 +28,7 @@ define which filter to use.
   <header>
     <file name="model.h"/>
   </header>
-  <periodic fun="model_inference()" freq="1"/>
+  <periodic fun="model_inference_processed()" freq="1"/>
   <makefile target="ap|nps">
     <file name="model.c"/>
   </makefile>
