@@ -79,6 +79,54 @@ struct color_object_t {
 };
 struct color_object_t global_filters[2];
 
+
+// Function to convert UYVY to [Y, U, V] array
+void convert_uyvy_to_yuv_array(struct image_t *img) {
+  uint8_t *data = (uint8_t *)img->buf;  // Cast to uint8_t for byte access
+  int width = img->w;
+  int height = img->h;
+
+  // Allocate memory for the YUV array (3 components per pixel)
+  uint8_t *yuv_array = (uint8_t *)malloc(width * height * 3 * sizeof(uint8_t));
+
+  int index = 0;  // Index for the new array
+  // Loop through the image buffer
+  for (int y = 0; y < height; y++) {
+      for (int x = 0; x < width; x += 2) {  // Process 2 pixels at a time (UYVY format)
+          int pixel_index = (y * width + x) * 2;  // Index of the first pixel (2 bytes per pixel pair)
+
+          // UYVY format: (U, Y) for pixel 1, (V, Y) for pixel 2
+          uint8_t U = data[pixel_index];            // U for pixel 1
+          uint8_t Y1 = data[pixel_index + 1];       // Y for pixel 1
+          uint8_t V = data[pixel_index + 2];        // V for pixel 2
+          uint8_t Y2 = data[pixel_index + 3];       // Y for pixel 2
+
+          // Store pixel 1 in [Y, U, V] format
+          yuv_array[index++] = Y1;  // Y for pixel 1
+          yuv_array[index++] = U;   // U for pixel 1
+          yuv_array[index++] = V;   // V for pixel 1
+
+          // Store pixel 2 in [Y, U, V] format
+          yuv_array[index++] = Y2;  // Y for pixel 2
+          yuv_array[index++] = U;   // U for pixel 2
+          yuv_array[index++] = V;   // V for pixel 2
+      }
+  }
+
+  // Now, yuv_array contains the image with each pixel represented by [Y, U, V]
+  // You can print or use this array as needed.
+
+  // Example: Print the first 10 pixels in the new YUV format
+  for (int i = 0; i < 10 && i < width * height * 3; i += 3) {
+      printf("Pixel %d: [Y: %d, U: %d, V: %d]\n", i / 3 + 1, yuv_array[i], yuv_array[i + 1], yuv_array[i + 2]);
+  }
+
+  // Don't forget to free the allocated memory for yuv_array
+  free(yuv_array);
+}
+
+
+
 // Function
 uint32_t find_object_centroid(struct image_t *img, int32_t* p_xc, int32_t* p_yc, bool draw,
                               uint8_t lum_min, uint8_t lum_max,
@@ -135,6 +183,10 @@ static struct image_t *object_detector(struct image_t *img, uint8_t filter)
   global_filters[filter-1].y_c = y_c;
   global_filters[filter-1].updated = true;
   pthread_mutex_unlock(&mutex);
+
+  printf('------------------------------------\n');
+  convert_uyvy_to_yuv_array(img);
+  printf('------------------------------------\n');
 
   return img;
 }
