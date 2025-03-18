@@ -3994,7 +3994,7 @@ float find_mode_with_buckets(float arr[], int size, float precision) {
 }
 
 
-void model_inference_processed(void) 
+void model_inference_processed(const float input_image[1][240][520][3]) 
 {
   float output_array[1][96];
 

@@ -28,6 +28,7 @@
 // Own header
 #include "modules/computer_vision/cv_detect_color_object.h"
 #include "modules/computer_vision/cv.h"
+#include "modules/computer_vision/visual_freq_test/model.h"
 #include "modules/core/abi.h"
 #include "std.h"
 
@@ -79,53 +80,137 @@ struct color_object_t {
 };
 struct color_object_t global_filters[2];
 
+float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3];
+// float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3] {
+//   int width = img->w;
+//   int height = img->h;
 
-// Function to convert UYVY to [Y, U, V] array
-void convert_uyvy_to_yuv_array(struct image_t *img) {
-  uint8_t *data = (uint8_t *)img->buf;  // Cast to uint8_t for byte access
+//   printf("Image width: %d, height: %d\n", width, height);
+
+//   if (width != 520 || height != 240) { // Image size must be [240][520] Volgens mij zijn de afbeeldingen een kwartslag gedraaid?
+//       printf("Error: Image size must be [240][520]\n");
+//       return NULL;
+//   }
+
+//   // Allocate memory for the tensor (1 batch, 240 height, 520 width, 3 channels)
+//   float (*yuv_array)[240][520][3] = 
+//       (float(*)[240][520][3])malloc(1 * height * width * 3 * sizeof(float));
+
+//   if (!yuv_array) {
+//       printf("Error: Memory allocation failed\n");
+//       return NULL;
+//   }
+
+//   uint8_t *data = (uint8_t *)img->buf;
+//   int index = 0;
+
+//   for (int y = 0; y < height; y++) {
+//       for (int x = 0; x < width; x += 2) {
+//           int pixel_index = (y * width + x) * 2;
+
+//           uint8_t U  = data[pixel_index];     // U for both pixels
+//           uint8_t Y1 = data[pixel_index + 1]; // Y for pixel 1
+//           uint8_t V  = data[pixel_index + 2]; // V for both pixels
+//           uint8_t Y2 = data[pixel_index + 3]; // Y for pixel 2
+
+//           // Normalize values to [0, 1] range
+//           float norm_Y1 = Y1 / 255.0f;
+//           float norm_U  = U / 255.0f;
+//           float norm_V  = V / 255.0f;
+//           float norm_Y2 = Y2 / 255.0f;
+
+//           // Store first pixel in the tensor
+//           yuv_array[0][y][x][0] = norm_Y1; // Y
+//           yuv_array[0][y][x][1] = norm_U;  // U
+//           yuv_array[0][y][x][2] = norm_V;  // V
+
+//           // Store second pixel in the tensor
+//           if (x + 1 < width) {
+//               yuv_array[0][y][x + 1][0] = norm_Y2; // Y
+//               yuv_array[0][y][x + 1][1] = norm_U;  // U
+//               yuv_array[0][y][x + 1][2] = norm_V;  // V
+//           }
+//       }
+//   }
+
+//   // ✅ Debugging output (optional):
+//   printf("First 10 pixels in YUV format:\n");
+//   for (int i = 0; i < 10; i++) {
+//       int row = i / width;
+//       int col = i % width;
+//       printf("Pixel [%d][%d]: Y = %.3f, U = %.3f, V = %.3f\n", row, col,
+//              yuv_array[0][row][col][0], yuv_array[0][row][col][1], yuv_array[0][row][col][2]);
+//   }
+
+//   return yuv_array;
+// }
+
+float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3] {
   int width = img->w;
   int height = img->h;
 
-  // Allocate memory for the YUV array (3 components per pixel)
-  uint8_t *yuv_array = (uint8_t *)malloc(width * height * 3 * sizeof(uint8_t));
+  printf("Image width: %d, height: %d\n", width, height);
 
-  int index = 0;  // Index for the new array
-  // Loop through the image buffer
+  if (width != 240 || height != 520) { // New expected image size is [240][520] after rotation
+      printf("Error: Image size must be [240][520] (images are rotated 90 degrees)\n");
+      return NULL;
+  }
+
+  // Allocate memory for the tensor (1 batch, 240 height, 520 width, 3 channels)
+  float (*yuv_array)[240][520][3] = 
+      (float(*)[240][520][3])malloc(1 * height * width * 3 * sizeof(float));
+
+  if (!yuv_array) {
+      printf("Error: Memory allocation failed\n");
+      return NULL;
+  }
+
+  uint8_t *data = (uint8_t *)img->buf;
+  int index = 0;
+
+  // Now that the image is rotated, we read it as if width is 240 and height is 520
   for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width; x += 2) {  // Process 2 pixels at a time (UYVY format)
-          int pixel_index = (y * width + x) * 2;  // Index of the first pixel (2 bytes per pixel pair)
+      for (int x = 0; x < width; x += 2) {
+          int pixel_index = (y * width + x) * 2;
 
-          // UYVY format: (U, Y) for pixel 1, (V, Y) for pixel 2
-          uint8_t U = data[pixel_index];            // U for pixel 1
-          uint8_t Y1 = data[pixel_index + 1];       // Y for pixel 1
-          uint8_t V = data[pixel_index + 2];        // V for pixel 2
-          uint8_t Y2 = data[pixel_index + 3];       // Y for pixel 2
+          uint8_t U  = data[pixel_index];     // U for both pixels
+          uint8_t Y1 = data[pixel_index + 1]; // Y for pixel 1
+          uint8_t V  = data[pixel_index + 2]; // V for both pixels
+          uint8_t Y2 = data[pixel_index + 3]; // Y for pixel 2
 
-          // Store pixel 1 in [Y, U, V] format
-          yuv_array[index++] = Y1;  // Y for pixel 1
-          yuv_array[index++] = U;   // U for pixel 1
-          yuv_array[index++] = V;   // V for pixel 1
+          // Normalize values to [0, 1] range
+          float norm_Y1 = Y1 / 255.0f;
+          float norm_U  = U / 255.0f;
+          float norm_V  = V / 255.0f;
+          float norm_Y2 = Y2 / 255.0f;
 
-          // Store pixel 2 in [Y, U, V] format
-          yuv_array[index++] = Y2;  // Y for pixel 2
-          yuv_array[index++] = U;   // U for pixel 2
-          yuv_array[index++] = V;   // V for pixel 2
+          // Store first pixel in the tensor
+          yuv_array[0][x][y][0] = norm_Y1; // Y
+          yuv_array[0][x][y][1] = norm_U;  // U
+          yuv_array[0][x][y][2] = norm_V;  // V
+
+          // Store second pixel in the tensor
+          if (x + 1 < width) {
+              yuv_array[0][x + 1][y][0] = norm_Y2; // Y
+              yuv_array[0][x + 1][y][1] = norm_U;  // U
+              yuv_array[0][x + 1][y][2] = norm_V;  // V
+          }
       }
   }
 
-  // Now, yuv_array contains the image with each pixel represented by [Y, U, V]
-  // You can print or use this array as needed.
-
-  // Example: Print the first 10 pixels in the new YUV format
-  for (int i = 0; i < 10 && i < width * height * 3; i += 3) {
-      printf("Pixel %d: [Y: %d, U: %d, V: %d]\n", i / 3 + 1, yuv_array[i], yuv_array[i + 1], yuv_array[i + 2]);
+  // ✅ Debugging output (optional):
+  printf("First 10 pixels in YUV format:\n");
+  for (int i = 0; i < 10; i++) {
+      int row = i / height;
+      int col = i % height;
+      printf("Pixel [%d][%d]: Y = %.3f, U = %.3f, V = %.3f\n", row, col,
+             yuv_array[0][col][row][0], yuv_array[0][col][row][1], yuv_array[0][col][row][2]);
   }
 
-  // Don't forget to free the allocated memory for yuv_array
-  free(yuv_array);
+  return yuv_array;
 }
 
-
+void model_inference(const float tensor_args_0[1][240][520][3], float tensor_output[1][96]);
 
 // Function
 uint32_t find_object_centroid(struct image_t *img, int32_t* p_xc, int32_t* p_yc, bool draw,
@@ -145,6 +230,19 @@ static struct image_t *object_detector(struct image_t *img, uint8_t filter)
   uint8_t cb_min, cb_max;
   uint8_t cr_min, cr_max;
   bool draw;
+
+  // const float image_shape[1][240][520][3];
+  float (*yuv_array)[240][520][3] = convert_uyvy_to_yuv_array(img);
+
+  float tensor_output[1][96];
+  if (yuv_array) {
+      model_inference(yuv_array, tensor_output);
+      free(yuv_array);
+  }
+
+  for (int i = 0; i < 96; i++) {
+    printf("tensor_output[0][%d] = %f\n", i, tensor_output[0][i]);
+}
 
   switch (filter){
     case 1:
@@ -183,10 +281,6 @@ static struct image_t *object_detector(struct image_t *img, uint8_t filter)
   global_filters[filter-1].y_c = y_c;
   global_filters[filter-1].updated = true;
   pthread_mutex_unlock(&mutex);
-
-  printf('------------------------------------\n');
-  convert_uyvy_to_yuv_array(img);
-  printf('------------------------------------\n');
 
   return img;
 }
