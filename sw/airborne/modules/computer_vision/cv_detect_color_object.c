@@ -45,6 +45,9 @@
 #endif
 
 static pthread_mutex_t mutex;
+pthread_mutex_t tensor_output_mutex;
+float tensor_output[1][96]; // Global tensor output
+
 
 #ifndef COLOR_OBJECT_DETECTOR_FPS1
 #define COLOR_OBJECT_DETECTOR_FPS1 0 ///< Default FPS (zero means run at camera fps)
@@ -166,7 +169,6 @@ float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3] {
   }
 
   uint8_t *data = (uint8_t *)img->buf;
-  int index = 0;
 
   // Now that the image is rotated, we read it as if width is 240 and height is 520
   for (int y = 0; y < height; y++) {
@@ -178,22 +180,16 @@ float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3] {
           uint8_t V  = data[pixel_index + 2]; // V for both pixels
           uint8_t Y2 = data[pixel_index + 3]; // Y for pixel 2
 
-          // Normalize values to [0, 1] range
-          float norm_Y1 = Y1 / 255.0f;
-          float norm_U  = U / 255.0f;
-          float norm_V  = V / 255.0f;
-          float norm_Y2 = Y2 / 255.0f;
-
           // Store first pixel in the tensor
-          yuv_array[0][x][y][0] = norm_Y1; // Y
-          yuv_array[0][x][y][1] = norm_U;  // U
-          yuv_array[0][x][y][2] = norm_V;  // V
+          yuv_array[0][x][y][0] = Y1; // Y
+          yuv_array[0][x][y][1] = U;  // U
+          yuv_array[0][x][y][2] = V;  // V
 
           // Store second pixel in the tensor
           if (x + 1 < width) {
-              yuv_array[0][x + 1][y][0] = norm_Y2; // Y
-              yuv_array[0][x + 1][y][1] = norm_U;  // U
-              yuv_array[0][x + 1][y][2] = norm_V;  // V
+              yuv_array[0][x + 1][y][0] = Y2; // Y
+              yuv_array[0][x + 1][y][1] = U;  // U
+              yuv_array[0][x + 1][y][2] = V;  // V
           }
       }
   }
@@ -234,15 +230,20 @@ static struct image_t *object_detector(struct image_t *img, uint8_t filter)
   // const float image_shape[1][240][520][3];
   float (*yuv_array)[240][520][3] = convert_uyvy_to_yuv_array(img);
 
-  float tensor_output[1][96];
+  pthread_mutex_lock(&tensor_output_mutex);
   if (yuv_array) {
       model_inference(yuv_array, tensor_output);
       free(yuv_array);
   }
+  else {
+      printf("YUV array non-existent\n");
+  }
 
   for (int i = 0; i < 96; i++) {
     printf("tensor_output[0][%d] = %f\n", i, tensor_output[0][i]);
-}
+  }
+  pthread_mutex_unlock(&tensor_output_mutex);
+
 
   switch (filter){
     case 1:
@@ -301,6 +302,7 @@ void color_object_detector_init(void)
 {
   memset(global_filters, 0, 2*sizeof(struct color_object_t));
   pthread_mutex_init(&mutex, NULL);
+  pthread_mutex_init(&tensor_output_mutex, NULL);
 #ifdef COLOR_OBJECT_DETECTOR_CAMERA1
 #ifdef COLOR_OBJECT_DETECTOR_LUM_MIN1
   cod_lum_min1 = COLOR_OBJECT_DETECTOR_LUM_MIN1;
@@ -419,4 +421,12 @@ void color_object_detector_periodic(void)
         0, 0, local_filters[1].color_count, 1);
     local_filters[1].updated = false;
   }
+
+  float local_tensor_output[1][96];
+  pthread_mutex_lock(&tensor_output_mutex);
+  memcpy(local_tensor_output, tensor_output, 1 * 96 * sizeof(float));
+  pthread_mutex_unlock(&tensor_output_mutex);
+
+  AbiSendMsgTENSOR_OUTPUT(TENSOR_OUTPUT_id, local_tensor_output);
+
 }
