@@ -59,7 +59,6 @@ int32_t color_count = 0;                // orange color count from color filter 
 int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 float heading_increment = 5.f;          // heading angle increment [deg]
 float maxDistance = 2.25;               // max waypoint displacement [m]
-float safety_grid[1][96];               // tensor output from the neural network
 
 const int16_t max_trajectory_confidence = 5; // number of consecutive negative object detections to be sure we are obstacle free
 
@@ -86,11 +85,16 @@ static void color_detection_cb(uint8_t __attribute__((unused)) sender_id,
 #define TENSOR_OUTPUT_id ABI_BROADCAST
 #endif
 
+
+float safety_grid[96];               // tensor output from the neural network
+
 static abi_event tensor_output_ev;
-static void tensor_output_cb(uint8_t __attribute__((unused)) sender_id, float tensor_output[1][96])
+static void tensor_output_cb(uint8_t __attribute__((unused)) sender_id, float* tensor)
 {
   // copy tensor output to local variable safety_grid
-  memcpy(safety_grid, tensor_output, sizeof(safety_grid));
+  for (int i =0; i<96; i++){
+    safety_grid[i] = tensor[i];
+  }
 }
 
 
@@ -122,8 +126,8 @@ void orange_avoider_periodic(void)
   int32_t color_count_threshold = oa_color_count_frac * front_camera.output_size.w * front_camera.output_size.h;
 
   VERBOSE_PRINT("Color_count: %d  threshold: %d state: %d \n", color_count, color_count_threshold, navigation_state);
-  VERBOSE_PRINT("First value of safety grid: %d\n", safety_grid[0][0]);
-  
+  VERBOSE_PRINT("First value of safety grid: %f\n", safety_grid[0]);
+
   // update our safe confidence using color threshold
   if(color_count < color_count_threshold){
     obstacle_free_confidence++;

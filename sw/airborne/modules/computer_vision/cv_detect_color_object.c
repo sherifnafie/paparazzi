@@ -422,7 +422,7 @@ void color_object_detector_periodic(void)
     local_filters[1].updated = false;
   }
 
-  float local_tensor_output[1][96];
+  float local_tensor_output[96];
   pthread_mutex_lock(&tensor_output_mutex);
   memcpy(local_tensor_output, tensor_output, 1 * 96 * sizeof(float));
   pthread_mutex_unlock(&tensor_output_mutex);
