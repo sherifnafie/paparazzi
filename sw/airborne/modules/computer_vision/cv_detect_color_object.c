@@ -81,7 +81,9 @@ struct color_object_t global_filters[2];
 
 
 // Function to convert UYVY to [Y, U, V] array
-void convert_uyvy_to_yuv_array(struct image_t *img) {
+void convert_uyvy_to_yuv_array(struct image_t *img);
+void convert_uyvy_to_yuv_array(struct image_t *img) 
+{
   uint8_t *data = (uint8_t *)img->buf;  // Cast to uint8_t for byte access
   int width = img->w;
   int height = img->h;
@@ -141,6 +143,10 @@ uint32_t find_object_centroid(struct image_t *img, int32_t* p_xc, int32_t* p_yc,
  */
 static struct image_t *object_detector(struct image_t *img, uint8_t filter)
 {
+  printf("------------------------------------\n");
+  convert_uyvy_to_yuv_array(img);
+  printf("------------------------------------\n");
+
   uint8_t lum_min, lum_max;
   uint8_t cb_min, cb_max;
   uint8_t cr_min, cr_max;
@@ -183,10 +189,6 @@ static struct image_t *object_detector(struct image_t *img, uint8_t filter)
   global_filters[filter-1].y_c = y_c;
   global_filters[filter-1].updated = true;
   pthread_mutex_unlock(&mutex);
-
-  printf('------------------------------------\n');
-  convert_uyvy_to_yuv_array(img);
-  printf('------------------------------------\n');
 
   return img;
 }

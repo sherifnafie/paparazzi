@@ -16,7 +16,6 @@
 //#include "modules/core/abi.h"
 #include <stdio.h>
 #include <time.h>
-
 #include <float.h>
 #include <math.h>
 #include <stdbool.h>
@@ -3993,65 +3992,68 @@ float find_mode_with_buckets(float arr[], int size, float precision) {
   return mode;
 }
 
+void model_inference_processed(void) {
+  printf("hi \n");}
 
-void model_inference_processed(void) 
-{
-  float output_array[1][96];
 
-  clock_t start, end;
-  float cpu_time_used;
+// void model_inference_processed(void) 
+// {
+//   float output_array[1][96];
 
-  // Start time
-  start = clock();
+//   clock_t start, end;
+//   float cpu_time_used;
 
-  model_inference(input_image, output_array);
+//   // Start time
+//   start = clock();
 
-  // End time
-  end = clock();
+//   model_inference(input_image, output_array);
 
-  // Calculate the elapsed time
-  cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
+//   // End time
+//   end = clock();
 
-  // print model ouput
-  printf("model output: \n");
+//   // Calculate the elapsed time
+//   cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
 
-  // loop array
-  for (int i = 0; i < 96; i++) {
-    printf("%f ", output_array[0][i]);
-    if ((i + 1) % 16 == 0) {
-        printf("\n");  // Print new line after every 16th element
-    }
-  }
+//   // print model ouput
+//   printf("model output: \n");
 
-  // Define ranges to calculate the average for
-  int ranges[box_height][2] = {
-    {5, 10},   // grid 6-11
-    {21, 26},  // grid 22-27
-    {37, 42},  // grid 38-43
-    {53, 58}   // grid 54-59
-  };
+//   // loop array
+//   for (int i = 0; i < 96; i++) {
+//     printf("%f ", output_array[0][i]);
+//     if ((i + 1) % 16 == 0) {
+//         printf("\n");  // Print new line after every 16th element
+//     }
+//   }
 
-  // Make combined array
-  float box_array[box_height * box_width];
-  int combined_size = combine_elements_from_ranges(output_array[0], ranges, box_height, box_array);
-  // Calculate the sum of the array
-  float sum = array_sum(box_array, combined_size);
+//   // Define ranges to calculate the average for
+//   int ranges[box_height][2] = {
+//     {5, 10},   // grid 6-11
+//     {21, 26},  // grid 22-27
+//     {37, 42},  // grid 38-43
+//     {53, 58}   // grid 54-59
+//   };
 
-  // Print sum and total_elements
-  // printf("Sum of the combined grid: %f\n", sum);
-  // printf("Total elements in the combined grid: %d\n", combined_size);
+//   // Make combined array
+//   float box_array[box_height * box_width];
+//   int combined_size = combine_elements_from_ranges(output_array[0], ranges, box_height, box_array);
+//   // Calculate the sum of the array
+//   float sum = array_sum(box_array, combined_size);
 
-  // Calculate the average
-  float combined_average = (float)sum / combined_size;
-  // Print the average
-  printf("Average of top-mid part of grid: %f\n", combined_average);
+//   // Print sum and total_elements
+//   // printf("Sum of the combined grid: %f\n", sum);
+//   // printf("Total elements in the combined grid: %d\n", combined_size);
 
-  // Find and print the mode of the combined array
-  float mode_value = find_mode_with_buckets(box_array, combined_size, 0.02);
-  printf("Most probable mode value in this box is: %f\n", mode_value);
+//   // Calculate the average
+//   float combined_average = (float)sum / combined_size;
+//   // Print the average
+//   printf("Average of top-mid part of grid: %f\n", combined_average);
 
-  // Print speed
-  printf("Time taken by function: %f seconds\n", cpu_time_used);
+//   // Find and print the mode of the combined array
+//   float mode_value = find_mode_with_buckets(box_array, combined_size, 0.02);
+//   printf("Most probable mode value in this box is: %f\n", mode_value);
+
+//   // Print speed
+//   printf("Time taken by function: %f seconds\n", cpu_time_used);
   
-return;
-}
+// return;
+// }
