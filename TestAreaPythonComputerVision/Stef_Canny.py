@@ -10,7 +10,7 @@ import math
 #images = glob.glob( './flying_images/*.jpg', recursive=True)
 #images = glob.glob(r'C:\Users\stefh\Documents\low_to_the_ground_images\20250314-121408\*.jpg', recursive=True)
 #images = glob.glob(r'\home\armin\Documents\MAV\TestAreaPythonComputerVision\*.jpg', recursive=True)
-images = glob.glob(r'/home/armin/Documents/MAV/TestAreaPythonComputerVision/image_folder2/*.jpg', recursive=True)
+images = glob.glob(r'/home/armin/Documents/MAV/TestAreaPythonComputerVision/image_folder4/*.jpg', recursive=True)
 
 average_pixels = 20
 worst_pixel_range = 100
