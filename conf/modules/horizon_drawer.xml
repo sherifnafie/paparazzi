@@ -1,0 +1,44 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="horizon_drawer">
+  <doc>
+    <description>
+      This module processes the front camera image to detect the horizon...
+    </description>
+    <!--
+      If you want a #define instead of a dynamic setting, you can skip the <settings> block.
+      But if you want a GCS-tunable variable, you must declare it properly:
+    -->
+    <define name="HORIZON_THRESHOLD" value="50" description="Fallback define if needed."/>
+  </doc>
+
+  <!--
+    DYNAMIC SETTINGS:
+    The code that parses these is quite strict about requiring a 'type', 'default', 'min', 'max', etc.
+  -->
+  <settings>
+   <dl_settings>   <!-- outer wrapper -->
+     <dl_settings name="HorizonDrawer">  <!-- group name -->
+       <dl_setting var="horizon_threshold"
+                   type="float"
+                   min="0"
+                   step="1"
+                   max="100"
+                   shortname="HThresh"/>
+     </dl_settings>
+   </dl_settings>
+  </settings>
+
+
+  <header>
+    <file name="horizon_drawer.h"/>
+  </header>
+
+  <init fun="horizon_drawer_init()"/>
+  <periodic fun="horizon_drawer_periodic()" freq="4"/>
+
+  <makefile target="ap|nps">
+    <file name="horizon_drawer.c"/>
+  </makefile>
+</module>
+
