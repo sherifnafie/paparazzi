@@ -645,4 +645,11 @@
 #endif
 
 
+/*
+ * IDs of safety grid senders
+ */
+#ifndef TENSOR_OUTPUT_id
+#define TENSOR_OUTPUT_id 1
+#endif
+
 #endif /* ABI_SENDER_IDS_H */

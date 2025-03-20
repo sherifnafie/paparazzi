@@ -2,6 +2,7 @@
 #define MODEL_H
 
 // Function prototype
-extern void model_inference_processed(void);
+extern void object_avoider_init(void);
+extern void object_avoider_periodic(void);
 
 #endif
