@@ -70,6 +70,7 @@ y_train = y[:halfway_point]
 X_test = X[halfway_point:]
 y_test = y[halfway_point:]
 
+
 # Build the CNN model with 3 fully connected layers and ~100k parameters
 def build_model(optimizer='adam', conv1_filters=16, conv1_stride_y=32, conv1_stride_x=32, conv2_filters=32, conv3_filters=64):
     model = models.Sequential([ 
@@ -107,6 +108,7 @@ model = build_model(optimizer='adam')  # Explicitly passing optimizer
 early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=1)
 
 # Train model with EarlyStopping
+print(X_train.shape)
 model.fit(X_train, y_train.reshape(y_train.shape[0], -1), epochs=5, batch_size=16, 
           validation_data=(X_test, y_test.reshape(y_test.shape[0], -1)),
           callbacks=[early_stopping])  # Add EarlyStopping callback
