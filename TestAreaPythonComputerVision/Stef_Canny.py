@@ -1,14 +1,16 @@
 import cv2
 import numpy as np
 import glob
-from sklearn.model_selection import train_test_split
-from sklearn.tree import export_text
+#from sklearn.model_selection import train_test_split
+#from sklearn.tree import export_text
 from random import randrange
 import time
 import math
 
 #images = glob.glob( './flying_images/*.jpg', recursive=True)
-images = glob.glob(r'C:\Users\stefh\Documents\low_to_the_ground_images\20250314-121408\*.jpg', recursive=True)
+#images = glob.glob(r'C:\Users\stefh\Documents\low_to_the_ground_images\20250314-121408\*.jpg', recursive=True)
+#images = glob.glob(r'\home\armin\Documents\MAV\TestAreaPythonComputerVision\*.jpg', recursive=True)
+images = glob.glob(r'/home/armin/Documents/MAV/TestAreaPythonComputerVision/image_folder2/*.jpg', recursive=True)
 
 average_pixels = 20
 worst_pixel_range = 100
@@ -92,12 +94,26 @@ for f in images:
     best_range = X_vec[len(X_vec) - 1][1]
     worst_range = X_vec_worst[0][1]
 
-    #The best direction is [best_range * average_pixels ... best_range * average_pixels + average_pixels]
-    #Create a rectangle on the image
+    # Draw rectangles
     cv2.rectangle(img_copy, (best_range * average_pixels, 0), (best_range * average_pixels + average_pixels, img_copy.shape[0]), (0, 255, 0), 2)
-
     cv2.rectangle(img_copy, (worst_range * average_pixels, 0), (worst_range * average_pixels + average_pixels, img_copy.shape[0]), (0, 0, 255), 2)
+    
+    # Display using matplotlib
+    import matplotlib.pyplot as plt
+    plt.imshow(cv2.cvtColor(img_copy, cv2.COLOR_BGR2RGB))
+    plt.title(f"Processed: {f}")
+    plt.axis("off")
+    plt.show()
 
-    cv2.imshow('original', img_copy)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+# =============================================================================
+#     #The best direction is [best_range * average_pixels ... best_range * average_pixels + average_pixels]
+#     #Create a rectangle on the image
+#     cv2.rectangle(img_copy, (best_range * average_pixels, 0), (best_range * average_pixels + average_pixels, img_copy.shape[0]), (0, 255, 0), 2)
+# 
+#     cv2.rectangle(img_copy, (worst_range * average_pixels, 0), (worst_range * average_pixels + average_pixels, img_copy.shape[0]), (0, 0, 255), 2)
+# 
+#     cv2.imshow('original', img_copy)
+#     cv2.waitKey(0)
+#     cv2.destroyAllWindows()
+# =============================================================================
+    
