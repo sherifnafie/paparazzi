@@ -15,6 +15,7 @@
 #include <math.h>      // sinf, cosf, fminf
 #include <stdbool.h>   // for bool
 #include <string.h>    // for memset if needed
+//#include <opencv2/opencv.hpp> // for more advanced CV
 
 /* Paparazzi / firmware includes */
 #include "modules/horizon_drawer/horizon_drawer.h"
@@ -84,6 +85,7 @@ static int best_column = -1; // -1 => none found
  */
 static void extractY(const struct image_t *img, uint8_t *gray)
 {
+  VERBOSE_PRINT("extractY\n");
   uint16_t w = img->w;
   uint16_t h = img->h;
   const uint8_t *buf = img->buf;
@@ -112,43 +114,72 @@ static void extractY(const struct image_t *img, uint8_t *gray)
  *   - We threshold it => edge=255 if magnitude>EDGE_THRESH else 0
  * This is not a full Canny pipeline (no non-max suppression, no hysteresis).
  */
-static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
+static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int width, int height)
 {
-  memset(edge_out, 0, w*h); // initialize to 0
-  // For simplicity, skip the border
-  const int EDGE_THRESH = 80; // tune this
+  VERBOSE_PRINT("sobel_edge\n");
+  //cv::Canny(gray_in, edge_out, 50, 130); // use this for full Canny
 
-  for (int y = 1; y < h-1; y++) {
-    for (int x = 1; x < w-1; x++) {
-      // index in row-major
-      int idx = y*w + x;
 
-      // Sobel Gx, Gy
-      // sample neighbors
-      int v00 = gray_in[(y-1)*w + (x-1)];
-      int v01 = gray_in[(y-1)*w + x];
-      int v02 = gray_in[(y-1)*w + (x+1)];
-      int v10 = gray_in[ y   *w + (x-1)];
-      int v12 = gray_in[ y   *w + (x+1)];
-      int v20 = gray_in[(y+1)*w + (x-1)];
-      int v21 = gray_in[(y+1)*w + x];
-      int v22 = gray_in[(y+1)*w + (x+1)];
+  memset(edge_out, 0, width * height);
 
-      int gx =  ( -v00 + v02
-                -2*v10 + 2*v12
-                -v20 + v22 );
-      int gy =  (  v00 + 2*v01 + v02
-                - v20 - 2*v21 - v22 );
+  const int EDGE_THRESH = 30; // tune this 80
+  for (int y = 1; y < height - 1; y++) {
+      for (int x = 1; x < width - 1; x++) {
+          int idx = y * width + x;
 
-      int mag = abs(gx) + abs(gy); // simpler than sqrt(gx^2+gy^2)
+          int gx = -gray_in[(y-1)*width + (x-1)] + gray_in[(y-1)*width + (x+1)]
+                   -2 * gray_in[y*width + (x-1)] + 2 * gray_in[y*width + (x+1)]
+                   -gray_in[(y+1)*width + (x-1)] + gray_in[(y+1)*width + (x+1)];
 
-      if (mag > EDGE_THRESH) {
-        edge_out[idx] = 255;
-      } else {
-        edge_out[idx] = 0;
-      }
-    }
+          int gy = gray_in[(y-1)*width + (x-1)] + 2 * gray_in[(y-1)*width + x] + gray_in[(y-1)*width + (x+1)]
+                   -gray_in[(y+1)*width + (x-1)] - 2 * gray_in[(y+1)*width + x] - gray_in[(y+1)*width + (x+1)];
+
+          int mag = abs(gx) + abs(gy); // Approximation of magnitude
+
+          if (mag > EDGE_THRESH) {
+            edge_out[idx] = 255;
+          } else {
+            edge_out[idx] = 0;
+          }
+      } 
   }
+
+
+  // memset(edge_out, 0, w*h); // initialize to 0
+  // // For simplicity, skip the border
+  // const int EDGE_THRESH = 30; // tune this 80
+
+  // for (int y = 1; y < h-1; y++) {
+  //   for (int x = 1; x < w-1; x++) {
+  //     // index in row-major
+  //     int idx = y*w + x;
+
+  //     // Sobel Gx, Gy
+  //     // sample neighbors
+  //     int v00 = gray_in[(y-1)*w + (x-1)];
+  //     int v01 = gray_in[(y-1)*w + x];
+  //     int v02 = gray_in[(y-1)*w + (x+1)];
+  //     int v10 = gray_in[ y   *w + (x-1)];
+  //     int v12 = gray_in[ y   *w + (x+1)];
+  //     int v20 = gray_in[(y+1)*w + (x-1)];
+  //     int v21 = gray_in[(y+1)*w + x];
+  //     int v22 = gray_in[(y+1)*w + (x+1)];
+
+  //     int gx =  ( -v00 + v02
+  //               -2*v10 + 2*v12
+  //               -v20 + v22 );
+  //     int gy =  (  v00 + 2*v01 + v02
+  //               - v20 - 2*v21 - v22 );
+
+  //     int mag = abs(gx) + abs(gy); // simpler than sqrt(gx^2+gy^2)
+  //     //VERBOSE_PRINT("mag: %i \n", mag);
+  //     if (mag > EDGE_THRESH) {
+  //       edge_out[idx] = 255;
+  //     } else {
+  //       edge_out[idx] = 0;
+  //     }
+  //   }
+  // }
 }
 
 /**
@@ -160,6 +191,7 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
  */
 static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
 {
+  
   int best_col = -1;
   int best_val = -1; // the best distance so far
 
@@ -167,7 +199,7 @@ static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
     // start from bottom row = h-1, go upward
     int dist = 0;
     bool found_edge = false;
-    for (int y = h-1; y >= 0; y--) {
+    for (int y = h/2-1; y >= 0; y--) { //only search in the lower half
       int idx = y*w + x;
       if (edge[idx] == 255) {
         // found an edge => measure distance from bottom
@@ -179,7 +211,7 @@ static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
     if (!found_edge) {
       // means no edge in this column => effectively dist = h 
       // or interpret that as "completely free"
-      dist = h;
+      dist = h/2;
     }
     if (dist > best_val) {
       best_val = dist;
@@ -187,6 +219,7 @@ static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
     }
   }
   *best_dist = best_val;
+  VERBOSE_PRINT("find_best_column. Best_col: %i with best_dist: %i\n", best_col, best_val);
   return best_col;
 }
 
@@ -293,6 +326,7 @@ void horizon_drawer_periodic(void)
   switch (navigation_state) {
 
     case SAFE:
+    VERBOSE_PRINT("SAFE: best_col=%d\n", best_column);
       // In principle, we might want to steer toward best_column here if it's good
       // but let's keep your old logic:
       moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
@@ -310,6 +344,7 @@ void horizon_drawer_periodic(void)
       break;
 
     case OBSTACLE_FOUND:
+    VERBOSE_PRINT("Obstacle Found: best_col=%d\n", best_column);
       // Stop => place WP_GOAL, WP_RETREAT, WP_TRAJECTORY at current pos
       waypoint_move_here_2d(WP_GOAL);
       waypoint_move_here_2d(WP_RETREAT);
@@ -320,6 +355,7 @@ void horizon_drawer_periodic(void)
       break;
 
     case SEARCH_FOR_SAFE_HEADING:
+    VERBOSE_PRINT("Search for Safe Heading: best_col=%d\n", best_column);
       increase_nav_heading(heading_increment);
 
       // For a more direct approach, you could set heading based on best_column:
@@ -332,7 +368,9 @@ void horizon_drawer_periodic(void)
       break;
 
     case OUT_OF_BOUNDS:
+    VERBOSE_PRINT("Out of Bounds: best_col=%d\n", best_column);
       increase_nav_heading(heading_increment);
+      // WP_Trajecktory says to the function that the WP which is next approach meant
       moveWaypointForward(WP_TRAJECTORY, 1.5f);
       moveWaypointForward(WP_RETREAT, -1.0f);
 
