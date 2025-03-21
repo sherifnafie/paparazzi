@@ -15,7 +15,6 @@
 #include <math.h>      // sinf, cosf, fminf
 #include <stdbool.h>   // for bool
 #include <string.h>    // for memset if needed
-//#include <opencv2/opencv.hpp> // for more advanced CV
 
 /* Paparazzi / firmware includes */
 #include "modules/horizon_drawer/horizon_drawer.h"
@@ -51,8 +50,12 @@ float horizon_threshold = 50.0f; // if horizon_black_percent >= 50 => safe
 static int16_t obstacle_free_confidence = 0;
 static float maxDistance = 2.25f;
 static float heading_increment = 5.f;
-static const int16_t max_trajectory_confidence = 5;
+static const int16_t max_trajectory_confidence = 3;
 
+/* Extra offset (in degrees) to steer left or right */
+static float extra_heading_offset = 0.0f;
+
+/* Navigation states */
 enum navigation_state_t {
   SAFE,
   OBSTACLE_FOUND,
@@ -70,6 +73,8 @@ static uint8_t moveWaypoint(uint8_t waypoint, struct EnuCoor_i *new_coor);
 static uint8_t increase_nav_heading(float incrementDegrees);
 static uint8_t chooseRandomIncrementAvoidance(void);
 
+static int measureSingleColumnDistance(const uint8_t *edge, int w, int h, int col);
+
 /* We'll also keep track of the "best column" that we found, so we can
  * do something with it in horizon_drawer_periodic (e.g. turn heading that way).
  */
@@ -85,7 +90,6 @@ static int best_column = -1; // -1 => none found
  */
 static void extractY(const struct image_t *img, uint8_t *gray)
 {
-  VERBOSE_PRINT("extractY\n");
   uint16_t w = img->w;
   uint16_t h = img->h;
   const uint8_t *buf = img->buf;
@@ -108,120 +112,68 @@ static void extractY(const struct image_t *img, uint8_t *gray)
 }
 
 /**
- * A very simplified "Sobel magnitude" approach: 
+ * A very simplified "Sobel magnitude" approach:
  *   - We compute dX, dY with 3x3 Sobel kernels
  *   - magnitude = sqrt(dX^2 + dY^2)
  *   - We threshold it => edge=255 if magnitude>EDGE_THRESH else 0
  * This is not a full Canny pipeline (no non-max suppression, no hysteresis).
  */
-static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int width, int height)
+static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
 {
-  VERBOSE_PRINT("sobel_edge\n");
-  //cv::Canny(gray_in, edge_out, 50, 130); // use this for full Canny
-  memset(edge_out, 0, width * height);
+  memset(edge_out, 0, w*h); // initialize to 0
+  // For simplicity, skip the border
+  const int EDGE_THRESH = 80; // tune this
 
-  const int EDGE_LOW_THRESH = 50;
-  const int EDGE_HIGH_THRESH = 130;
-  //const int EDGE_THRESH = 30; // tune this 80
-  for (int y = 1; y < height - 1; y++) {
-      for (int x = 1; x < width - 1; x++) {
-          int idx = y * width + x;
+  for (int y = 1; y < h-1; y++) {
+    for (int x = 1; x < w-1; x++) {
+      int idx = y*w + x;
 
-          int gx = -gray_in[(y-1)*width + (x-1)] + gray_in[(y-1)*width + (x+1)]
-                   -2 * gray_in[y*width + (x-1)] + 2 * gray_in[y*width + (x+1)]
-                   -gray_in[(y+1)*width + (x-1)] + gray_in[(y+1)*width + (x+1)];
+      // sample neighbors
+      int v00 = gray_in[(y-1)*w + (x-1)];
+      int v01 = gray_in[(y-1)*w + x];
+      int v02 = gray_in[(y-1)*w + (x+1)];
+      int v10 = gray_in[ y   *w + (x-1)];
+      int v12 = gray_in[ y   *w + (x+1)];
+      int v20 = gray_in[(y+1)*w + (x-1)];
+      int v21 = gray_in[(y+1)*w + x];
+      int v22 = gray_in[(y+1)*w + (x+1)];
 
-          int gy = gray_in[(y-1)*width + (x-1)] + 2 * gray_in[(y-1)*width + x] + gray_in[(y-1)*width + (x+1)]
-                   -gray_in[(y+1)*width + (x-1)] - 2 * gray_in[(y+1)*width + x] - gray_in[(y+1)*width + (x+1)];
+      int gx =  ( -v00 + v02
+                -2*v10 + 2*v12
+                -v20 + v22 );
+      int gy =  (  v00 + 2*v01 + v02
+                - v20 - 2*v21 - v22 );
 
-          int mag = abs(gx) + abs(gy); // Approximation of magnitude
+      int mag = abs(gx) + abs(gy); // simpler than sqrt(gx^2+gy^2)
 
-          if (mag > EDGE_HIGH_THRESH) {
-              edge_out[idx] = 255; // Strong edge
-          } else if (mag > EDGE_LOW_THRESH) {
-              edge_out[idx] = 128; // Weak edge
-          } else {
-              edge_out[idx] = 0; // No edge
-          }
-      } 
+      if (mag > EDGE_THRESH) {
+        edge_out[idx] = 255;
+      } else {
+        edge_out[idx] = 0;
+      }
+    }
   }
-
-
-  // memset(edge_out, 0, w*h); // initialize to 0
-  // // For simplicity, skip the border
-  // const int EDGE_THRESH = 30; // tune this 80
-
-  // for (int y = 1; y < h-1; y++) {
-  //   for (int x = 1; x < w-1; x++) {
-  //     // index in row-major
-  //     int idx = y*w + x;
-
-  //     // Sobel Gx, Gy
-  //     // sample neighbors
-  //     int v00 = gray_in[(y-1)*w + (x-1)];
-  //     int v01 = gray_in[(y-1)*w + x];
-  //     int v02 = gray_in[(y-1)*w + (x+1)];
-  //     int v10 = gray_in[ y   *w + (x-1)];
-  //     int v12 = gray_in[ y   *w + (x+1)];
-  //     int v20 = gray_in[(y+1)*w + (x-1)];
-  //     int v21 = gray_in[(y+1)*w + x];
-  //     int v22 = gray_in[(y+1)*w + (x+1)];
-
-  //     int gx =  ( -v00 + v02
-  //               -2*v10 + 2*v12
-  //               -v20 + v22 );
-  //     int gy =  (  v00 + 2*v01 + v02
-  //               - v20 - 2*v21 - v22 );
-
-  //     int mag = abs(gx) + abs(gy); // simpler than sqrt(gx^2+gy^2)
-  //     //VERBOSE_PRINT("mag: %i \n", mag);
-  //     if (mag > EDGE_THRESH) {
-  //       edge_out[idx] = 255;
-  //     } else {
-  //       edge_out[idx] = 0;
-  //     }
-  //   }
-  // }
 }
 
 /**
  * For each column, we scan from bottom to top, look for the first edge_out[y*w + x] = 255.
- * The "distance" is (h-1 - y). We pick the column that yields the largest distance.
- *
- * If no edges at all, or if every column has edges right near the bottom, 
- * we might declare "unsafe."
+ * The "distance" is (h-1 - y).
+ * We pick the column that yields the largest distance,
+ * ignoring columns that exceed 55% => "unsafe => distance=0"
  */
 static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
 {
-  
   int best_col = -1;
-  int best_val = -1; // the best distance so far
+  int best_val = -1;
 
   for (int x = 0; x < w; x++) {
-    // start from bottom row = h-1, go upward
-    int dist = 0;
-    bool found_edge = false;
-    for (int y = h/2-1; y >= 0; y--) { //only search in the lower half
-      int idx = y*w + x;
-      if (edge[idx] == 255) {
-        // found an edge => measure distance from bottom
-        dist = (h-1) - y; 
-        found_edge = true;
-        break;
-      }
-    }
-    if (!found_edge) {
-      // means no edge in this column => effectively dist = h 
-      // or interpret that as "completely free"
-      dist = h/2;
-    }
+    int dist = measureSingleColumnDistance(edge, w, h, x);
     if (dist > best_val) {
       best_val = dist;
       best_col = x;
     }
   }
   *best_dist = best_val;
-  VERBOSE_PRINT("find_best_column. Best_col: %i with best_dist: %i\n", best_col, best_val);
   return best_col;
 }
 
@@ -234,6 +186,7 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   if (!img || !img->buf) {
     horizon_black_percent = 50.f; // fallback
     best_column = -1;
+    extra_heading_offset = 0.0f;
     return img;
   }
 
@@ -241,11 +194,11 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   uint16_t h = img->h;
 
   // 1) Extract Y channel
-  static uint8_t gray[2000*2000]; // Be sure this is big enough for your max resolution!
+  static uint8_t gray[2000*2000];
   if (w*h > 2000*2000) {
-    // safety check: if your cam is bigger than 2000x2000, you need a bigger buffer
     horizon_black_percent = 0.f;
     best_column = -1;
+    extra_heading_offset = 0.0f;
     return img;
   }
   extractY(img, gray);
@@ -258,20 +211,49 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   int best_dist = 0;
   int col = find_best_column(edges, w, h, &best_dist);
 
-  best_column = col; // store globally
-  // If best_dist is very small, or best_col = -1 => "unsafe"
-  // If we found a big gap => "safe"
+  best_column = col;
 
-  // Let's say if best_dist > ~1/4 of the height => safe
-  int min_safe_dist = h / 4;  
+  // If best_dist is too small => "unsafe"
+  int min_safe_dist = h / 4;
   if (best_dist < min_safe_dist) {
-    horizon_black_percent = 0.f;   // "unsafe"
+    horizon_black_percent = 0.f;
   } else {
-    horizon_black_percent = 100.f; // "safe"
+    horizon_black_percent = 100.f;
   }
 
   VERBOSE_PRINT("Canny-like best_col=%d best_dist=%d => black%%=%.1f\n",
                 best_column, best_dist, horizon_black_percent);
+
+  // ----------------------------------------------------------------
+  //   EXTRA STEERING LOGIC:
+  //   We look at the columns to the immediate left/right of best_column
+  //   whichever side has a bigger distance => tilt slightly that way
+  // ----------------------------------------------------------------
+  extra_heading_offset = 0.0f; // default
+  if (best_column >= 0) {
+    int left_col = best_column - 1;
+    int right_col = best_column + 1;
+
+    int dist_left = 0;
+    if (left_col >= 0) {
+      dist_left = measureSingleColumnDistance(edges, w, h, left_col);
+    }
+
+    int dist_right = 0;
+    if (right_col < w) {
+      dist_right = measureSingleColumnDistance(edges, w, h, right_col);
+    }
+
+    // If left is bigger => turn left a bit
+    // If right is bigger => turn right a bit
+    // pick an angle, e.g. 3 deg
+    if (dist_left > dist_right) {
+      extra_heading_offset = +5.f;  // steer a bit left
+    } else if (dist_right > dist_left) {
+      extra_heading_offset = -5.f;  // steer a bit right
+    }
+    // if equal => 0
+  }
 
   return img; // must return the image pointer
 }
@@ -293,6 +275,7 @@ void horizon_drawer_init(void)
   navigation_state = SEARCH_FOR_SAFE_HEADING;
   obstacle_free_confidence = 0;
   best_column = -1;
+  extra_heading_offset = 0.0f;
 }
 
 /* ------------------------------------------------------------------ */
@@ -328,9 +311,12 @@ void horizon_drawer_periodic(void)
   switch (navigation_state) {
 
     case SAFE:
-    VERBOSE_PRINT("SAFE: best_col=%d\n", best_column);
-      // In principle, we might want to steer toward best_column here if it's good
-      // but let's keep your old logic:
+      // Optionally steer extra, based on the best_column neighbors
+      // e.g. we do it once per iteration
+      increase_nav_heading(extra_heading_offset);
+
+      // In principle, we might want to steer toward best_column if it's good,
+      // but let's keep your old logic for waypoint movement:
       moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
 
       if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
@@ -346,7 +332,6 @@ void horizon_drawer_periodic(void)
       break;
 
     case OBSTACLE_FOUND:
-    VERBOSE_PRINT("Obstacle Found: best_col=%d\n", best_column);
       // Stop => place WP_GOAL, WP_RETREAT, WP_TRAJECTORY at current pos
       waypoint_move_here_2d(WP_GOAL);
       waypoint_move_here_2d(WP_RETREAT);
@@ -357,12 +342,7 @@ void horizon_drawer_periodic(void)
       break;
 
     case SEARCH_FOR_SAFE_HEADING:
-    VERBOSE_PRINT("Search for Safe Heading: best_col=%d\n", best_column);
       increase_nav_heading(heading_increment);
-
-      // For a more direct approach, you could set heading based on best_column:
-      // e.g.  float new_heading = headingFromColumn(best_column);
-      //       nav.heading = new_heading;
 
       if (obstacle_free_confidence >= 2) {
         navigation_state = SAFE;
@@ -370,9 +350,7 @@ void horizon_drawer_periodic(void)
       break;
 
     case OUT_OF_BOUNDS:
-    VERBOSE_PRINT("Out of Bounds: best_col=%d\n", best_column);
       increase_nav_heading(heading_increment);
-      // WP_Trajecktory says to the function that the WP which is next approach meant
       moveWaypointForward(WP_TRAJECTORY, 1.5f);
       moveWaypointForward(WP_RETREAT, -1.0f);
 
@@ -391,6 +369,38 @@ void horizon_drawer_periodic(void)
 /* ------------------------------------------------------------------ */
 /*                       Helper Functions                             */
 /* ------------------------------------------------------------------ */
+
+/**
+ * measureSingleColumnDistance():
+ *   We replicate the same logic from find_best_column for a single column,
+ *   including the 55% "unsafe" filter.
+ */
+static int measureSingleColumnDistance(const uint8_t *edge, int w, int h, int col)
+{
+  const float unsafe_limit = 0.55f * (float)h;
+  int dist = 0;
+  bool found_edge = false;
+
+  // scan from bottom up
+  for (int y = h - 1; y >= 0; y--) {
+    int idx = y*w + col;
+    if (edge[idx] == 255) {
+      dist = (h - 1) - y;
+      found_edge = true;
+      break;
+    }
+  }
+  if (!found_edge) {
+    dist = h; // no edge => effectively the entire column is free
+  }
+
+  // If distance >= 55% => set dist=0 => "unsafe"
+  if ((float)dist >= unsafe_limit) {
+    dist = 0;
+  }
+
+  return dist;
+}
 
 static uint8_t moveWaypointForward(uint8_t waypoint, float distanceMeters)
 {
