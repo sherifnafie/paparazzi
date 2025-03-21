@@ -118,11 +118,11 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int width, int
 {
   VERBOSE_PRINT("sobel_edge\n");
   //cv::Canny(gray_in, edge_out, 50, 130); // use this for full Canny
-
-
   memset(edge_out, 0, width * height);
 
-  const int EDGE_THRESH = 30; // tune this 80
+  const int EDGE_LOW_THRESH = 50;
+  const int EDGE_HIGH_THRESH = 130;
+  //const int EDGE_THRESH = 30; // tune this 80
   for (int y = 1; y < height - 1; y++) {
       for (int x = 1; x < width - 1; x++) {
           int idx = y * width + x;
@@ -136,10 +136,12 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int width, int
 
           int mag = abs(gx) + abs(gy); // Approximation of magnitude
 
-          if (mag > EDGE_THRESH) {
-            edge_out[idx] = 255;
+          if (mag > EDGE_HIGH_THRESH) {
+              edge_out[idx] = 255; // Strong edge
+          } else if (mag > EDGE_LOW_THRESH) {
+              edge_out[idx] = 128; // Weak edge
           } else {
-            edge_out[idx] = 0;
+              edge_out[idx] = 0; // No edge
           }
       } 
   }
