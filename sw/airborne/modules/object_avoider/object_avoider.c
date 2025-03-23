@@ -67,7 +67,7 @@ enum navigation_state_t {
 // define and initialise global variables
 enum navigation_state_t navigation_state = SEARCH_FOR_SAFE_HEADING;
 int16_t safety_rating = 0;   
-int16_t safety_minimum = 400;             
+int16_t safety_minimum = 420;             
 int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 float heading_increment = 5.f;          // heading angle increment [deg]
 float maxDistance = 2.25;               // max waypoint displacement [m]
@@ -295,10 +295,10 @@ float array_sum(float arr[], int size) {
 int16_t get_safety_rating(void)
 {
   int ranges[box_height][2] = {
-    {6, 9},   // grid 6-11
-    {22, 25},  // grid 22-27
-    {38, 41},  // grid 38-43
-    {54, 57}   // grid 54-59
+    {6, 10},   // grid 7-10
+    {22, 26},  // grid 23-26
+    {38, 42},  // grid 39-42
+    {54, 58}   // grid 55-58
   };
 
   // Make combined array
