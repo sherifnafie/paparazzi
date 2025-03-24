@@ -164,18 +164,27 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
  */
 static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist)
 {
-  int best_col = -1;
+  int best_row = -1;
   int best_val = -1;
 
-  for (int x = 0; x < w; x++) {
-    int dist = measureSingleColumnDistance(img, edge, w, h, x);
+  for (int y = 0; y < h; y++) {
+    int dist = measureSingleColumnDistance(img, edge, w, h, y);
     if (dist > best_val) {
       best_val = dist;
-      best_col = x;
+      best_row = y;
     }
   }
+
+  // Set the entire best_row to 255 in the input image
+  if (best_row >= 0) {
+    uint8_t *buf = (uint8_t *)img->buf;
+    for (int x = 0; x < w; x++) {
+      buf[best_row * w * 2 + x * 2 + 1] = 255; // Y1
+    }
+  }
+  
   *best_dist = best_val;
-  return best_col;
+  return best_row;
 }
 
 /* ------------------------------------------------------------------ */
@@ -220,14 +229,13 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   // }
   
 
-  // 3) Find best column
+  // 3) Find best row ## 90 DEGREES TURNED!!
   int best_dist = 0;
   int col = find_best_column(img, edges, w, h, &best_dist);
-
   best_column = col;
 
   // If best_dist is too small => "unsafe"
-  int min_safe_dist = h / 4;
+  int min_safe_dist = w / 4;
   if (best_dist < min_safe_dist) {
     horizon_black_percent = 0.f;
   } else {
@@ -394,26 +402,24 @@ void horizon_drawer_periodic(void)
 
 static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row)
 {
-  int flipped_h = w;
-  int flipped_w = h;
-  const float unsafe_limit = 0.55f * (float)flipped_w;
+  const float unsafe_limit = 0.55f * (float)w;
   int dist = 0;
   bool found_edge = false;
 
   // scan from left to right
   uint8_t *buf = (uint8_t *)img->buf;
-  for (int x = 0; x < flipped_w; x++) {
-    int idx = row * flipped_w + x;
+  for (int x = 0; x < w; x++) {
+    int idx = row * w + x;
     if (edge[idx] == 255) {
       dist = x;
-      buf[row * flipped_w * 2 + x * 2 + 1] = 255; // Y1
+      buf[row * w * 2 + x * 2 + 1] = 255; // Y1
       found_edge = true;
       break;
     }
   }
 
   if (!found_edge) {
-    dist = flipped_w; // no edge => effectively the entire row is free
+    dist = w; // no edge => effectively the entire row is free
   }
 
   // If distance >= 55% => set dist=0 => "unsafe"
