@@ -73,7 +73,7 @@ static uint8_t moveWaypoint(uint8_t waypoint, struct EnuCoor_i *new_coor);
 static uint8_t increase_nav_heading(float incrementDegrees);
 static uint8_t chooseRandomIncrementAvoidance(void);
 
-static int measureSingleColumnDistance(const uint8_t *edge, int w, int h, int col);
+static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int col);
 
 /* We'll also keep track of the "best column" that we found, so we can
  * do something with it in horizon_drawer_periodic (e.g. turn heading that way).
@@ -109,6 +109,7 @@ static void extractY(const struct image_t *img, uint8_t *gray)
       }
     }
   }
+  
 }
 
 /**
@@ -161,13 +162,13 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
  * We pick the column that yields the largest distance,
  * ignoring columns that exceed 55% => "unsafe => distance=0"
  */
-static int find_best_column(const uint8_t *edge, int w, int h, int *best_dist)
+static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist)
 {
   int best_col = -1;
   int best_val = -1;
 
   for (int x = 0; x < w; x++) {
-    int dist = measureSingleColumnDistance(edge, w, h, x);
+    int dist = measureSingleColumnDistance(img, edge, w, h, x);
     if (dist > best_val) {
       best_val = dist;
       best_col = x;
@@ -207,9 +208,21 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   static uint8_t edges[2000*2000];
   sobel_edge(gray, edges, w, h);
 
+  // // Put pixels with edges to y = 255 in the *img
+  // uint8_t *buf = (uint8_t *)img->buf;
+  // for (int y = 0; y < h; y++) {
+  //     for (int x = 0; x < w; x++) {
+  //         int idx = y * w + x;
+  //         if (edges[idx] == 255) {
+  //             buf[y * w * 2 + x * 2 + 1] = 255; // Y1
+  //         }
+  //     }
+  // }
+  
+
   // 3) Find best column
   int best_dist = 0;
-  int col = find_best_column(edges, w, h, &best_dist);
+  int col = find_best_column(img, edges, w, h, &best_dist);
 
   best_column = col;
 
@@ -221,8 +234,8 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
     horizon_black_percent = 100.f;
   }
 
-  VERBOSE_PRINT("Canny-like best_col=%d best_dist=%d => black%%=%.1f\n",
-                best_column, best_dist, horizon_black_percent);
+  // VERBOSE_PRINT("Canny-like best_col=%d best_dist=%d => black%%=%.1f\n",
+  //               best_column, best_dist, horizon_black_percent);
 
   // ----------------------------------------------------------------
   //   EXTRA STEERING LOGIC:
@@ -236,12 +249,12 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
     int dist_left = 0;
     if (left_col >= 0) {
-      dist_left = measureSingleColumnDistance(edges, w, h, left_col);
+      dist_left = measureSingleColumnDistance(img, edges, w, h, left_col);
     }
 
     int dist_right = 0;
     if (right_col < w) {
-      dist_right = measureSingleColumnDistance(edges, w, h, right_col);
+      dist_right = measureSingleColumnDistance(img, edges, w, h, right_col);
     }
 
     // If left is bigger => turn left a bit
@@ -289,8 +302,8 @@ void horizon_drawer_periodic(void)
 
   float black_percent = horizon_black_percent;
 
-  VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
-                black_percent, horizon_threshold, navigation_state, best_column);
+  // VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
+  //               black_percent, horizon_threshold, navigation_state, best_column);
 
   // If black_percent >= threshold => "safe"
   if (black_percent >= horizon_threshold) {
@@ -305,6 +318,9 @@ void horizon_drawer_periodic(void)
   } else if (obstacle_free_confidence > max_trajectory_confidence) {
     obstacle_free_confidence = max_trajectory_confidence;
   }
+
+  VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
+
 
   float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
 
@@ -375,23 +391,29 @@ void horizon_drawer_periodic(void)
  *   We replicate the same logic from find_best_column for a single column,
  *   including the 55% "unsafe" filter.
  */
-static int measureSingleColumnDistance(const uint8_t *edge, int w, int h, int col)
+
+static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row)
 {
-  const float unsafe_limit = 0.55f * (float)h;
+  int flipped_h = w;
+  int flipped_w = h;
+  const float unsafe_limit = 0.55f * (float)flipped_w;
   int dist = 0;
   bool found_edge = false;
 
-  // scan from bottom up
-  for (int y = h - 1; y >= 0; y--) {
-    int idx = y*w + col;
+  // scan from left to right
+  uint8_t *buf = (uint8_t *)img->buf;
+  for (int x = 0; x < flipped_w; x++) {
+    int idx = row * flipped_w + x;
     if (edge[idx] == 255) {
-      dist = (h - 1) - y;
+      dist = x;
+      buf[row * flipped_w * 2 + x * 2 + 1] = 255; // Y1
       found_edge = true;
       break;
     }
   }
+
   if (!found_edge) {
-    dist = h; // no edge => effectively the entire column is free
+    dist = flipped_w; // no edge => effectively the entire row is free
   }
 
   // If distance >= 55% => set dist=0 => "unsafe"
