@@ -162,16 +162,54 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
  * We pick the column that yields the largest distance,
  * ignoring columns that exceed 55% => "unsafe => distance=0"
  */
-static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist)
-{
-  int best_row = -1;
-  int best_val = -1;
+// static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist)
+// {
+//   int best_row = -1;
+//   int best_val = -1;
 
+//   for (int y = 0; y < h; y++) {
+//     int dist = measureSingleColumnDistance(img, edge, w, h, y);
+//     if (dist > best_val) {
+//       best_val = dist;
+//       best_row = y;
+//     }
+//   }
+
+//   // Set the entire best_row to 255 in the input image
+//   if (best_row >= 0) {
+//     uint8_t *buf = (uint8_t *)img->buf;
+//     for (int x = 0; x < w; x++) {
+//       buf[best_row * w * 2 + x * 2 + 1] = 255; // Y1
+//     }
+//   }
+
+//   *best_dist = best_val;
+//   return best_row;
+// }
+
+static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist, int *best_direction, int *worst_direction, int *worst_dist)
+{
+
+  // Calculate the height for each column
+  int *column_heights = (int *)malloc(h * sizeof(int));
   for (int y = 0; y < h; y++) {
-    int dist = measureSingleColumnDistance(img, edge, w, h, y);
-    if (dist > best_val) {
-      best_val = dist;
-      best_row = y;
+    column_heights[y] = measureSingleColumnDistance(img, edge, w, h, y);
+  }
+  //Initialize
+  int max_avg_height = 0;
+  int best_row = 0;
+  int num_neighbors = 10; // specify the number of neighboring columns to consider
+
+  // Best Direction
+  for (int y = 0; y < h - num_neighbors + 1; y++) {
+    int sum_height = 0;
+    for (int n = 0; n < num_neighbors; n++) {
+      sum_height += column_heights[y + n];
+    }
+    int avg_height = sum_height / num_neighbors;
+    if (avg_height > max_avg_height) {
+      max_avg_height = avg_height;
+      best_row = y + num_neighbors / 2; // center of the neighboring columns
     }
   }
 
@@ -179,12 +217,45 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   if (best_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
     for (int x = 0; x < w; x++) {
-      buf[best_row * w * 2 + x * 2 + 1] = 255; // Y1
+      buf[best_row * w * 2 + x * 2 + 1] = 149; // Y (brightness for green)
+      buf[best_row * w * 2 + x * 2 + 0] = 43;  // U (chrominance for green)
+      buf[best_row * w * 2 + x * 2 + 3] = 21;  // V (chrominance for green)
     }
   }
-  
-  *best_dist = best_val;
-  return best_row;
+
+  // Worst Direction
+  int min_avg_height = 255;
+  int worst_row = 0;
+
+  for (int y = 0; y < h - num_neighbors + 1; y++) {
+    int sum_height = 0;
+    for (int n = 0; n < num_neighbors; n++) {
+      sum_height += column_heights[y + n];
+    }
+    int avg_height = sum_height / num_neighbors;
+    if (avg_height < min_avg_height) {
+      min_avg_height = avg_height;
+      worst_row = y + num_neighbors / 2; // center of the neighboring columns
+    }
+  }
+
+  // Set the entire best_row to 255 in the input image
+  if (worst_row >= 0) {
+    uint8_t *buf = (uint8_t *)img->buf;
+    for (int x = 0; x < w; x++) {
+      buf[worst_row * w * 2 + x * 2 + 1] = 255; // Y1
+    }
+  }
+
+  *worst_direction = (worst_row >= 0) ? (worst_row * 100 / w) : 0;
+  *best_dist = max_avg_height;
+  *worst_dist = min_avg_height;
+  free(column_heights);
+  *best_direction = (best_row >= 0) ? (best_row * 100 / w) : 0;
+
+
+  VERBOSE_PRINT("Best direction: %d -- max_avg_height: %d\n", *best_direction, max_avg_height);
+  VERBOSE_PRINT("Worst direction: %d -- worst_col %d\n", *worst_direction, worst_row);
 }
 
 /* ------------------------------------------------------------------ */
@@ -231,8 +302,10 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // 3) Find best row ## 90 DEGREES TURNED!!
   int best_dist = 0;
-  int col = find_best_column(img, edges, w, h, &best_dist);
-  best_column = col;
+  int best_direction = 0;
+  int worst_direction = 0;
+  int worst_dist = 0;
+  find_best_column(img, edges, w, h, &best_dist, &best_direction, &worst_direction, &worst_dist);
 
   // If best_dist is too small => "unsafe"
   int min_safe_dist = w / 4;
