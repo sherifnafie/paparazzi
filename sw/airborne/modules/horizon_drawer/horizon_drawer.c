@@ -15,6 +15,7 @@
 #include <math.h>      // sinf, cosf, fminf
 #include <stdbool.h>   // for bool
 #include <string.h>    // for memset if needed
+#include <pthread.h>
 
 /* Paparazzi / firmware includes */
 #include "modules/horizon_drawer/horizon_drawer.h"
@@ -50,10 +51,17 @@ float horizon_threshold = 50.0f; // if horizon_black_percent >= 50 => safe
 static int16_t obstacle_free_confidence = 0;
 static float maxDistance = 2.25f;
 static float heading_increment = 5.f;
-static const int16_t max_trajectory_confidence = 3;
+static const int16_t max_trajectory_confidence = 4;
+static bool possible_obstacle_in_center = false;
 
 /* Extra offset (in degrees) to steer left or right */
 static float extra_heading_offset = 0.0f;
+
+static const int middle_danger_zone = 150; // The considered width of the middle in pixels, 52 = 10% of 520
+static const int min_safe_dist = 45; // Minimally required distance between bottom and first edge in the middle to be SAFE 
+
+static const int middle_start = 520 / 2 - middle_danger_zone / 2;
+static const int middle_end = 520 / 2 + middle_danger_zone / 2;
 
 /* Navigation states */
 enum navigation_state_t {
@@ -79,6 +87,8 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
  * do something with it in horizon_drawer_periodic (e.g. turn heading that way).
  */
 static int best_column = -1; // -1 => none found
+
+static pthread_mutex_t possible_obstacle_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /* ------------------------------------------------------------------ */
 /*  Canny-like steps                                                  */
@@ -266,7 +276,7 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   uint16_t w = img->w;
   uint16_t h = img->h;
-  float skip_percentage = 0.2f; // skip the top and bottom 20%
+  float skip_percentage = 0.1f; // skip the top and bottom 20%
   int adjusted_h = h * (1.0f - 2.0f * skip_percentage);
   int offset_y = h * skip_percentage;
 
@@ -304,20 +314,14 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // VERBOSE_PRINT("Worst dist: %d, Best dist: %d\n", worst_dist, best_dist);
 
-  // If best_dist is too small => "unsafe"
-  int middle_danger_zone = h / 4; // The considered width of the middle in pixels, 52 = 10% of 520
-  int min_safe_dist = w / 4; // Minimally required distance between bottom and first edge in the middle to be SAFE 
-
-  int middle_start = h / 2 - middle_danger_zone / 2;
-  int middle_end = h / 2 + middle_danger_zone / 2;
-
-  bool possible_obstacle_in_center = false;
+  pthread_mutex_lock(&possible_obstacle_mutex);
+  possible_obstacle_in_center = false;
   if (worst_direction >= middle_start && worst_direction <= middle_end) {
     if (worst_dist < min_safe_dist) {
       possible_obstacle_in_center = true;
     }
   }
-  
+  pthread_mutex_unlock(&possible_obstacle_mutex);
 
   // Draw bounding lines for the middle danger zone
   uint8_t *buf = (uint8_t *)img->buf;
@@ -339,14 +343,6 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
     buf[y * w * 2 + min_safe_dist * 2 + 3] = 107; // V (chrominance for blue)
   }
 
-  // Not how its supposed to work but still have to fix this
-  if (best_dist < min_safe_dist) {
-    horizon_black_percent = 0.f;
-  } else {
-    horizon_black_percent = 100.f;
-  }
-  // VERBOSE_PRINT("Canny-like best_col=%d best_dist=%d => black%%=%.1f\n",
-  //               best_column, best_dist, horizon_black_percent);
 
   // ----------------------------------------------------------------
   //   EXTRA STEERING LOGIC:
@@ -400,6 +396,7 @@ void horizon_drawer_init(void)
   obstacle_free_confidence = 0;
   best_column = -1;
   extra_heading_offset = 0.0f;
+  possible_obstacle_in_center = false;
 }
 
 /* ------------------------------------------------------------------ */
@@ -411,17 +408,14 @@ void horizon_drawer_periodic(void)
     return;
   }
 
-  float black_percent = horizon_black_percent;
-
-  VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
-                black_percent, horizon_threshold, navigation_state, best_column);
-
-  // If black_percent >= threshold => "safe"
-  if (black_percent >= horizon_threshold) {
-    obstacle_free_confidence++;
-  } else {
+  pthread_mutex_lock(&possible_obstacle_mutex);
+  if (possible_obstacle_in_center) {
     obstacle_free_confidence -= 2;
+    VERBOSE_PRINT("Possible obstacle in center, confidence: %d\n", obstacle_free_confidence);
+  } else {
+    obstacle_free_confidence++;
   }
+  pthread_mutex_unlock(&possible_obstacle_mutex);
 
   // Bound obstacle_free_confidence
   if (obstacle_free_confidence < 0) {
@@ -432,15 +426,14 @@ void horizon_drawer_periodic(void)
 
   VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
 
-
-  float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
+  float moveDistance = fminf(maxDistance, 0.3f * obstacle_free_confidence);
 
   switch (navigation_state) {
 
     case SAFE:
       // Optionally steer extra, based on the best_column neighbors
       // e.g. we do it once per iteration
-      increase_nav_heading(extra_heading_offset);
+      // increase_nav_heading(extra_heading_offset);
 
       // In principle, we might want to steer toward best_column if it's good,
       // but let's keep your old logic for waypoint movement:
