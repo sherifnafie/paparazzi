@@ -324,9 +324,9 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // Draw the top boundary of the middle danger zone
   for (int x = 0; x < min_safe_dist; x++) {
-    buf[(middle_start) * w * 2 + x * 2 + 1] = 76;  // Y (brightness for red)
-    buf[(middle_start) * w * 2 + x * 2 + 0] = 85;  // U (chrominance for red)
-    buf[(middle_start) * w * 2 + x * 2 + 3] = 255; // V (chrominance for red)
+    buf[(middle_start) * w * 2 + x * 2 + 1] = 29;  // Y (brightness for blue)
+    buf[(middle_start) * w * 2 + x * 2 + 0] = 255; // U (chrominance for blue)
+    buf[(middle_start) * w * 2 + x * 2 + 3] = 107; // V (chrominance for blue)
 
     buf[(middle_end) * w * 2 + x * 2 + 1] = 29;  // Y (brightness for blue)
     buf[(middle_end) * w * 2 + x * 2 + 0] = 255; // U (chrominance for blue)
