@@ -49,8 +49,10 @@ float horizon_threshold = 50.0f; // if horizon_black_percent >= 50 => safe
 
 /* Confidence tracking and state machine */
 static int16_t obstacle_free_confidence = 0;
+static int16_t best_direction_global = 0;
 static float maxDistance = 2.25f;
 static float heading_increment = 5.f;
+static float heading_increment_obstacle_found = 5.f;
 static const int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
@@ -80,6 +82,7 @@ static uint8_t calculateForwards(struct EnuCoor_i *new_coor, float distanceMeter
 static uint8_t moveWaypoint(uint8_t waypoint, struct EnuCoor_i *new_coor);
 static uint8_t increase_nav_heading(float incrementDegrees);
 static uint8_t chooseRandomIncrementAvoidance(void);
+static float chooseBestDirectionChange(int best_direction);
 
 static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int col, int offset_y);
 
@@ -89,6 +92,8 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
 static int best_column = -1; // -1 => none found
 
 static pthread_mutex_t possible_obstacle_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t best_direction_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 
 /* ------------------------------------------------------------------ */
 /*  Canny-like steps                                                  */
@@ -314,6 +319,10 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // VERBOSE_PRINT("Worst dist: %d, Best dist: %d\n", worst_dist, best_dist);
 
+  pthread_mutex_lock(&best_direction_mutex);
+  best_direction_global = best_direction;
+  pthread_mutex_unlock(&best_direction_mutex);
+
   pthread_mutex_lock(&possible_obstacle_mutex);
   possible_obstacle_in_center = false;
   if (worst_direction >= middle_start && worst_direction <= middle_end) {
@@ -394,6 +403,7 @@ void horizon_drawer_init(void)
   // Start out searching
   navigation_state = SEARCH_FOR_SAFE_HEADING;
   obstacle_free_confidence = 0;
+  heading_increment_obstacle_found = 0;
   best_column = -1;
   extra_heading_offset = 0.0f;
   possible_obstacle_in_center = false;
@@ -416,6 +426,10 @@ void horizon_drawer_periodic(void)
     obstacle_free_confidence++;
   }
   pthread_mutex_unlock(&possible_obstacle_mutex);
+
+  pthread_mutex_lock(&best_direction_mutex);
+  int best_direction_local = best_direction_global;
+  pthread_mutex_unlock(&best_direction_mutex);
 
   // Bound obstacle_free_confidence
   if (obstacle_free_confidence < 0) {
@@ -458,6 +472,7 @@ void horizon_drawer_periodic(void)
       waypoint_move_here_2d(WP_TRAJECTORY);
 
       chooseRandomIncrementAvoidance();
+      heading_increment_obstacle_found = chooseBestDirectionChange(best_direction_local);
       navigation_state = SEARCH_FOR_SAFE_HEADING;
       break;
 
@@ -580,5 +595,17 @@ static uint8_t chooseRandomIncrementAvoidance(void)
   }
   VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment);
   return 0;
+}
+
+static float chooseBestDirectionChange(int best_direction)
+{
+  float heading_increment_obstacle_found = 0.0f;
+  if (best_direction >= 50) {
+    heading_increment_obstacle_found = (((float)best_direction - 50.0f) / 50.0f) * 45.0f;
+  } else {
+    heading_increment_obstacle_found = ((float)best_direction / 50.0f) * 45.0f;
+  }
+  VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment_obstacle_found);
+  return heading_increment_obstacle_found;
 }
 
