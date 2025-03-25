@@ -426,7 +426,7 @@ void horizon_drawer_periodic(void)
 
   VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
 
-  float moveDistance = fminf(maxDistance, 0.3f * obstacle_free_confidence);
+  float moveDistance = fminf(maxDistance, 0.25f * obstacle_free_confidence);
 
   switch (navigation_state) {
 
