@@ -112,7 +112,7 @@ float (*convert_uyvy_to_yuv_array(struct image_t *img))[240][520][3] {
   int width = img->w;
   int height = img->h;
 
-  printf("Image width: %d, height: %d\n", width, height);
+  //printf("Image width: %d, height: %d\n", width, height);
 
   if (width != 240 || height != 520) { // New expected image size is [240][520] after rotation
       printf("Error: Image size must be [240][520] (images are rotated 90 degrees)\n");
@@ -188,13 +188,13 @@ uint32_t find_object_centroid(struct image_t *img, int32_t* p_xc, int32_t* p_yc,
  */
 static struct image_t *object_detector(struct image_t *img, uint8_t filter)
 {
-  printf("------------------------------------\n");
+  // printf("------------------------------------\n");
   float (*yuv_array)[240][520][3] = convert_uyvy_to_yuv_array(img);
-  printf("------------------------------------\n");
+  // printf("------------------------------------\n");
 
   pthread_mutex_lock(&output_mutex);
   if (yuv_array) {
-    printf("Running model inference...\n");
+    //printf("Running model inference...\n");
     model_inference_processed(yuv_array, ouput_array_cut);
     free(yuv_array);
   }

@@ -117034,6 +117034,21 @@ void model_inference(const float tensor_input[1][240][520][3], float tensor_resi
 	node_Transpose__43( tu1.tensor_model_27_conv2d_144_Sigmoid_0, tensor_new_shape__51, tu0.tensor_Transpose__43_0);
 	node_Resize__45( tu0.tensor_Transpose__43_0, tensor_scales__44, tu1.tensor_Resize__45_0);
 	node_model_27_resizing_27_resize_ResizeBilinear( tu1.tensor_Resize__45_0, tensor_new_shape__52, tensor_resizing_27);
+  
+  for (int r = 0; r < 12; r++) {      // Loop over rows
+    for (int c = 0; c < 32; c++) {  // Loop over columns
+        printf("%6.2f ", tu1.tensor_Resize__45_0[0][0][r][c]); // Format for readability
+    }
+    printf("\n"); // New line after each row
+  }
+  
+  
+  for (int i = 0; i < 384; i++) {
+    printf("%f ", tensor_resizing_27[i]);
+    if ((i + 1) % 16 == 0) {
+        printf("\n");  // Print new line after every 16th element
+    }
+  }
 }
 
 // Function to combine elements from multiple ranges into one array

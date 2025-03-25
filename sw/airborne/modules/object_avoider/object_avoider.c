@@ -42,7 +42,7 @@
 #define TENSOR_OUTPUT_id ABI_BROADCAST
 #endif
 
-#define box_height 4
+#define box_height 9
 #define box_width 6
  
 static uint8_t moveWaypointForward(uint8_t waypoint, float distanceMeters);
@@ -75,13 +75,13 @@ float maxDistance = 2.25;               // max waypoint displacement [m]
 const int16_t max_trajectory_confidence = 5; // number of consecutive negative object detections to be sure we are obstacle free
 
 
-float safety_grid[64];               // tensor output from the neural network
+float safety_grid[384];               // tensor output from the neural network
  
 static abi_event tensor_output_ev;
 static void tensor_output_cb(uint8_t __attribute__((unused)) sender_id, float* tensor)
 {
   // copy tensor output to local variable safety_grid
-  for (int i =0; i<64; i++){
+  for (int i =0; i<384; i++){
     safety_grid[i] = tensor[i];
   } 
 }
@@ -107,10 +107,10 @@ void object_avoider_periodic(void)
   printf("safety grid: \n");
 
   // loop array
-  for (int i = 0; i < 64; i++) {
+  for (int i = 0; i < 384; i++) {
     printf("%f ", safety_grid[i]);
 
-    if ((i + 1) % 16 == 0) {
+    if ((i + 1) % 32 == 0) {
       printf("\n");  // Print new line after every 16th element
     }
   }
@@ -122,7 +122,7 @@ void object_avoider_periodic(void)
   }
 
   // update our safe confidence using color threshold
-  if(safety_rating > safety_minimum){
+  if(safety_rating < safety_minimum){
     obstacle_free_confidence++;
   } else {
     obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
@@ -295,10 +295,15 @@ float array_sum(float arr[], int size) {
 int16_t get_safety_rating(void)
 {
   int ranges[box_height][2] = {
-    {6, 10},   // grid 7-10
-    {22, 26},  // grid 23-26
-    {38, 42},  // grid 39-42
-    {54, 58}   // grid 55-58
+    {13, 18},
+    {45, 50},  
+    {77, 82},  
+    {109, 114},
+    {141, 146},
+    {173, 178},
+    {205, 210},
+    {237, 242},
+    {269, 274}  
   };
 
   // Make combined array
@@ -307,6 +312,8 @@ int16_t get_safety_rating(void)
   // Calculate the sum of the array
   float sum = array_sum(box_array, combined_size);
 
+  printf("Sum: %f\n", sum);
+  printf("Combined size: %d\n", combined_size);
   // Calculate the average
   int16_t result = (int16_t)((float)sum / combined_size * 1000);
   // Print the average
