@@ -47,10 +47,24 @@ static float horizon_black_percent = 0.0f;
 float horizon_threshold = 50.0f; // if horizon_black_percent >= 50 => safe
 
 /* Confidence tracking and state machine */
-static int16_t obstacle_free_confidence = 0;
-static float maxDistance = 2.25f;
+static int8_t obstacle_free_confidence=0;
+#define MAX_DISTANCE 2.25f
 static float heading_increment = 5.f;
-static const int16_t max_trajectory_confidence = 3;
+#define MAX_TRAJECTORY_CONFIDENCE 3
+
+/* Output of Stefs algorithm: 
+best and worst point to fly
+value from 0 to 100
+0 completely left, 100 completely right of image */
+static int16_t best_direction = 70;
+static int16_t worst_direction = 0;
+
+static int16_t worst_dist = 0;
+static int16_t best_dist = 0;
+
+/* width of center region that is 
+validated for position of best/worst point */
+#define WIDTH_CENTER_REGION 20 
 
 /* Extra offset (in degrees) to steer left or right */
 static float extra_heading_offset = 0.0f;
@@ -243,11 +257,16 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
     }
   }
 
-  *worst_direction = worst_row;
+
+  *worst_direction = (worst_row * 100) / h;
   *best_dist = max_avg_height;
   *worst_dist = min_avg_height;
   free(column_heights);
-  *best_direction = best_row;
+  *best_direction = (best_row * 100) / h;
+
+
+  VERBOSE_PRINT("Best direction: %d -- best_row: %d\n", *best_direction, best_row);
+  VERBOSE_PRINT("Worst direction: %d -- worst_row %d\n", *worst_direction, worst_row);
 
 }
 
@@ -296,6 +315,7 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   // }
   
   // 3) Find best row ## 90 DEGREES TURNED!!
+
   int best_dist = 0;              // 0 - cut_off_limit * 240
   int best_direction = 0;         // 0 - 520
   int worst_direction = 0;        // 0 - 520
@@ -303,6 +323,7 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   find_best_column(img, edges, w, h, &best_dist, &best_direction, &worst_direction, &worst_dist, offset_y, adjusted_h);
 
   // VERBOSE_PRINT("Worst dist: %d, Best dist: %d\n", worst_dist, best_dist);
+
 
   // If best_dist is too small => "unsafe"
   int middle_danger_zone = h / 4; // The considered width of the middle in pixels, 52 = 10% of 520
@@ -411,87 +432,81 @@ void horizon_drawer_periodic(void)
     return;
   }
 
-  float black_percent = horizon_black_percent;
-
-  VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
-                black_percent, horizon_threshold, navigation_state, best_column);
+  // @todo: Why does obstacle_free_confidence always start at 0 beginning of each periodic call?
+  VERBOSE_PRINT("Obstacle_free_confidence_begin of Periodic: %d\n", obstacle_free_confidence);
 
   // If black_percent >= threshold => "safe"
-  if (black_percent >= horizon_threshold) {
-    obstacle_free_confidence++;
+  // float black_percent = horizon_black_percent;
+  
+  if (/*(best_direction >= (100 - WIDTH_CENTER_REGION) / 2 && best_direction <= (100 + WIDTH_CENTER_REGION) / 2) &&*/
+    (worst_direction <= (100 - WIDTH_CENTER_REGION) / 2 || worst_direction >= (100 + WIDTH_CENTER_REGION) / 2)) {
+    obstacle_free_confidence += 2; // should be +1 for memory. But it never reaches 2
+    VERBOSE_PRINT("No Obstacle in Center\n");
   } else {
     obstacle_free_confidence -= 2;
-  }
+  } 
 
-  // Bound obstacle_free_confidence
+  // keep confidence within bounds
   if (obstacle_free_confidence < 0) {
     obstacle_free_confidence = 0;
-  } else if (obstacle_free_confidence > max_trajectory_confidence) {
-    obstacle_free_confidence = max_trajectory_confidence;
+  } else if (obstacle_free_confidence > MAX_TRAJECTORY_CONFIDENCE) {
+    obstacle_free_confidence = MAX_TRAJECTORY_CONFIDENCE;
   }
 
-  VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
+  Bound(obstacle_free_confidence, 0, MAX_TRAJECTORY_CONFIDENCE);
+  float moveDistance = fminf(MAX_DISTANCE, 0.2f * obstacle_free_confidence);
 
-
-  float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
+  chooseRandomIncrementAvoidance();
 
   switch (navigation_state) {
-
     case SAFE:
-      // Optionally steer extra, based on the best_column neighbors
-      // e.g. we do it once per iteration
-      increase_nav_heading(extra_heading_offset);
+        moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
 
-      // In principle, we might want to steer toward best_column if it's good,
-      // but let's keep your old logic for waypoint movement:
-      moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
-
-      if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
-        navigation_state = OUT_OF_BOUNDS;
-      }
-      else if (obstacle_free_confidence == 0) {
-        navigation_state = OBSTACLE_FOUND;
-      }
-      else {
-        moveWaypointForward(WP_GOAL, moveDistance);
-        moveWaypointForward(WP_RETREAT, -1.0f * moveDistance);
-      }
-      break;
+        if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
+            navigation_state = OUT_OF_BOUNDS;
+        } else if (obstacle_free_confidence == 0) {
+            navigation_state = OBSTACLE_FOUND;
+        } else {
+            moveWaypointForward(WP_GOAL, moveDistance);
+            moveWaypointForward(WP_RETREAT, -1.0f * moveDistance);
+        }
+        break;
 
     case OBSTACLE_FOUND:
-      // Stop => place WP_GOAL, WP_RETREAT, WP_TRAJECTORY at current pos
-      waypoint_move_here_2d(WP_GOAL);
-      waypoint_move_here_2d(WP_RETREAT);
-      waypoint_move_here_2d(WP_TRAJECTORY);
-
-      chooseRandomIncrementAvoidance();
-      navigation_state = SEARCH_FOR_SAFE_HEADING;
-      break;
+        VERBOSE_PRINT("--------------------Obstacle Found -------------------------\n");
+        waypoint_move_here_2d(WP_GOAL);
+        waypoint_move_here_2d(WP_RETREAT);
+        waypoint_move_here_2d(WP_TRAJECTORY);
+        navigation_state = SEARCH_FOR_SAFE_HEADING;
+        break;
 
     case SEARCH_FOR_SAFE_HEADING:
-      increase_nav_heading(heading_increment);
+        increase_nav_heading(heading_increment);
 
-      if (obstacle_free_confidence >= 2) {
-        navigation_state = SAFE;
-      }
-      break;
+        if (obstacle_free_confidence >= 2) {
+            navigation_state = SAFE;
+        }
+        break;
 
     case OUT_OF_BOUNDS:
-      increase_nav_heading(heading_increment);
-      moveWaypointForward(WP_TRAJECTORY, 1.5f);
-      moveWaypointForward(WP_RETREAT, -1.0f);
-
-      if (InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
+        VERBOSE_PRINT("Out of Bounds!!!!!!!!!!!!!!!!!!!\n");
         increase_nav_heading(heading_increment);
-        obstacle_free_confidence = 0;
-        navigation_state = SEARCH_FOR_SAFE_HEADING;
-      }
-      break;
+        moveWaypointForward(WP_TRAJECTORY, 1.5f);
+        moveWaypointForward(WP_RETREAT, -1.0f);
+
+        if (InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
+            increase_nav_heading(heading_increment);
+            obstacle_free_confidence = 0;
+            navigation_state = SEARCH_FOR_SAFE_HEADING;
+        }
+        break;
 
     default:
-      break;
+        break;
   }
+  VERBOSE_PRINT("confidence_END of Periodic: %d\n", obstacle_free_confidence);
 }
+
 
 /* ------------------------------------------------------------------ */
 /*                       Helper Functions                             */
@@ -578,14 +593,24 @@ static uint8_t increase_nav_heading(float incrementDegrees)
   return 0;
 }
 
+/* not rantom anymore - returned direction depends on where the best_direction is
+it is assumed that the camera has an angle of 90 deg. Therefore if the best direction
+is 100 the drone turns 45 deg to the right*/
 static uint8_t chooseRandomIncrementAvoidance(void)
 {
-  if (rand() % 2 == 0) {
-    heading_increment = 5.f;
+  if (best_direction >= 50) {
+    heading_increment = ((best_direction - 50) / 50.0f) * 45.0f;
   } else {
-    heading_increment = -5.f;
+    heading_increment = (best_direction / 50.0f) * 45.0f;
   }
   VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment);
   return 0;
+  // if (rand() % 2 == 0) {
+  //   heading_increment = 5.f;
+  // } else {
+  //   heading_increment = -5.f;
+  // }
+  // VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment);
+  // return 0;
 }
 
