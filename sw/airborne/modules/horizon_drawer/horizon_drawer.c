@@ -73,7 +73,7 @@ static uint8_t moveWaypoint(uint8_t waypoint, struct EnuCoor_i *new_coor);
 static uint8_t increase_nav_heading(float incrementDegrees);
 static uint8_t chooseRandomIncrementAvoidance(void);
 
-static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int col);
+static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int col, int offset_y);
 
 /* We'll also keep track of the "best column" that we found, so we can
  * do something with it in horizon_drawer_periodic (e.g. turn heading that way).
@@ -88,24 +88,25 @@ static int best_column = -1; // -1 => none found
  * Extract the Y channel from YUV422 into a single grayscale array.
  * Size: w*h, row-major.
  */
-static void extractY(const struct image_t *img, uint8_t *gray)
+static void extractY(const struct image_t *img, uint8_t *gray, int offset_y, int adjusted_h)
 {
   uint16_t w = img->w;
   uint16_t h = img->h;
   const uint8_t *buf = img->buf;
 
+  // Adjust the height to exclude the top and bottom #### IMAGE IS ROTATED SO WE ONLY TAKE MIDDLE ROWS
   // Each row has w*2 bytes in YUV422
   // We'll simply read each pixel's Y into gray array
   int idx = 0;
-  for (int py = 0; py < (int)h; py++) {
+  for (int py = offset_y; py < (int)h - offset_y; py++) {
     int row_start = py * w * 2;
     for (int px = 0; px < (int)w; px++) {
       if ((px % 2) == 0) {
         // even x => Y at [2*px + 1]
-        gray[idx++] = buf[row_start + 2*px + 1];
+        gray[idx++] = buf[row_start + 2 * px + 1];
       } else {
         // odd  x => Y at [2*px - 1]
-        gray[idx++] = buf[row_start + 2*px - 1];
+        gray[idx++] = buf[row_start + 2 * px - 1];
       }
     }
   }
@@ -119,15 +120,16 @@ static void extractY(const struct image_t *img, uint8_t *gray)
  *   - We threshold it => edge=255 if magnitude>EDGE_THRESH else 0
  * This is not a full Canny pipeline (no non-max suppression, no hysteresis).
  */
-static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
+static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h, int offset_y, int adjusted_h)
 {
-  memset(edge_out, 0, w*h); // initialize to 0
+  memset(edge_out, 0, w*adjusted_h); // initialize to 0
   // For simplicity, skip the border
-  const int EDGE_THRESH = 80; // tune this
+  const int EDGE_THRESH = 88; // tune this
 
-  for (int y = 1; y < h-1; y++) {
-    for (int x = 1; x < w-1; x++) {
-      int idx = y*w + x;
+  // Adjust the height to exclude the top and bottom #### IMAGE IS ROTATED SO WE ONLY TAKE MIDDLE ROWS
+  for (int y = 1; y < adjusted_h - 1; y++) {
+    for (int x = 1; x < w - 1; x++) {
+      int idx = y * w + x;
 
       // sample neighbors
       int v00 = gray_in[(y-1)*w + (x-1)];
@@ -187,13 +189,13 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
 //   return best_row;
 // }
 
-static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist, int *best_direction, int *worst_direction, int *worst_dist)
+static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist, int *best_direction, int *worst_direction, int *worst_dist, int offset_y, int adjusted_h)
 {
-
+  // Adjust the height to exclude the top and bottom, which are actually the sides since the image is rotated
   // Calculate the height for each column
-  int *column_heights = (int *)malloc(h * sizeof(int));
-  for (int y = 0; y < h; y++) {
-    column_heights[y] = measureSingleColumnDistance(img, edge, w, h, y);
+  int *column_heights = (int *)malloc(adjusted_h * sizeof(int));
+  for (int y = 0; y < adjusted_h; y++) {
+    column_heights[y] = measureSingleColumnDistance(img, edge, w, h, y, offset_y);
   }
   //Initialize
   int max_avg_height = 0;
@@ -201,7 +203,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   int num_neighbors = 10; // specify the number of neighboring columns to consider
 
   // Best Direction
-  for (int y = 0; y < h - num_neighbors + 1; y++) {
+  for (int y = 0; y < adjusted_h - num_neighbors + 1; y++) {
     int sum_height = 0;
     for (int n = 0; n < num_neighbors; n++) {
       sum_height += column_heights[y + n];
@@ -212,7 +214,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
       best_row = y + num_neighbors / 2; // center of the neighboring columns
     }
   }
-
+  best_row += offset_y;
   // Set the entire best_row to 255 in the input image
   if (best_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
@@ -227,7 +229,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   int min_avg_height = 255;
   int worst_row = 0;
 
-  for (int y = 0; y < h - num_neighbors + 1; y++) {
+  for (int y = 0; y < adjusted_h - num_neighbors + 1; y++) {
     int sum_height = 0;
     for (int n = 0; n < num_neighbors; n++) {
       sum_height += column_heights[y + n];
@@ -238,7 +240,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
       worst_row = y + num_neighbors / 2; // center of the neighboring columns
     }
   }
-
+  worst_row += offset_y;
   // Set the entire best_row to 255 in the input image
   if (worst_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
@@ -253,9 +255,6 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   free(column_heights);
   *best_direction = (best_row >= 0) ? (best_row * 100 / w) : 0;
 
-
-  VERBOSE_PRINT("Best direction: %d -- max_avg_height: %d\n", *best_direction, max_avg_height);
-  VERBOSE_PRINT("Worst direction: %d -- worst_col %d\n", *worst_direction, worst_row);
 }
 
 /* ------------------------------------------------------------------ */
@@ -273,6 +272,9 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   uint16_t w = img->w;
   uint16_t h = img->h;
+  float skip_percentage = 0.2f; // skip the top and bottom 20%
+  int adjusted_h = h * (1.0f - 2.0f * skip_percentage);
+  int offset_y = h * skip_percentage;
 
   // 1) Extract Y channel
   static uint8_t gray[2000*2000];
@@ -282,30 +284,29 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
     extra_heading_offset = 0.0f;
     return img;
   }
-  extractY(img, gray);
+  extractY(img, gray, offset_y, adjusted_h);
 
   // 2) Sobel Edge
   static uint8_t edges[2000*2000];
-  sobel_edge(gray, edges, w, h);
+  sobel_edge(gray, edges, w, h, offset_y, adjusted_h);
 
-  // // Put pixels with edges to y = 255 in the *img
+  // // Put pixels with edges to y = 255 in the *img  ### FOR DEBUGGING
   // uint8_t *buf = (uint8_t *)img->buf;
-  // for (int y = 0; y < h; y++) {
+  // for (int y = 0; y < adjusted_h; y++) {
   //     for (int x = 0; x < w; x++) {
   //         int idx = y * w + x;
   //         if (edges[idx] == 255) {
-  //             buf[y * w * 2 + x * 2 + 1] = 255; // Y1
+  //             buf[ (y + offset_y) * w * 2 + x * 2 + 1] = 255; // Y1
   //         }
   //     }
   // }
   
-
   // 3) Find best row ## 90 DEGREES TURNED!!
   int best_dist = 0;
   int best_direction = 0;
   int worst_direction = 0;
   int worst_dist = 0;
-  find_best_column(img, edges, w, h, &best_dist, &best_direction, &worst_direction, &worst_dist);
+  find_best_column(img, edges, w, h, &best_dist, &best_direction, &worst_direction, &worst_dist, offset_y, adjusted_h);
 
   // If best_dist is too small => "unsafe"
   int min_safe_dist = w / 4;
@@ -330,12 +331,12 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
     int dist_left = 0;
     if (left_col >= 0) {
-      dist_left = measureSingleColumnDistance(img, edges, w, h, left_col);
+      dist_left = measureSingleColumnDistance(img, edges, w, h, left_col, offset_y);
     }
 
     int dist_right = 0;
     if (right_col < w) {
-      dist_right = measureSingleColumnDistance(img, edges, w, h, right_col);
+      dist_right = measureSingleColumnDistance(img, edges, w, h, right_col, offset_y);
     }
 
     // If left is bigger => turn left a bit
@@ -383,8 +384,8 @@ void horizon_drawer_periodic(void)
 
   float black_percent = horizon_black_percent;
 
-  // VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
-  //               black_percent, horizon_threshold, navigation_state, best_column);
+  VERBOSE_PRINT("Edges => black%%=%.1f, threshold=%.1f, state=%d, best_col=%d\n",
+                black_percent, horizon_threshold, navigation_state, best_column);
 
   // If black_percent >= threshold => "safe"
   if (black_percent >= horizon_threshold) {
@@ -473,7 +474,7 @@ void horizon_drawer_periodic(void)
  *   including the 55% "unsafe" filter.
  */
 
-static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row)
+static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row, int offset_y)
 {
   const float unsafe_limit = 0.55f * (float)w;
   int dist = 0;
@@ -485,7 +486,7 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
     int idx = row * w + x;
     if (edge[idx] == 255) {
       dist = x;
-      buf[row * w * 2 + x * 2 + 1] = 255; // Y1
+      buf[(row + offset_y) * w * 2 + x * 2 + 1] = 255; // Y1
       found_edge = true;
       break;
     }
