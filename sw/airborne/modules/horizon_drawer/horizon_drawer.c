@@ -101,13 +101,7 @@ static void extractY(const struct image_t *img, uint8_t *gray, int offset_y, int
   for (int py = offset_y; py < (int)h - offset_y; py++) {
     int row_start = py * w * 2;
     for (int px = 0; px < (int)w; px++) {
-      if ((px % 2) == 0) {
-        // even x => Y at [2*px + 1]
-        gray[idx++] = buf[row_start + 2 * px + 1];
-      } else {
-        // odd  x => Y at [2*px - 1]
-        gray[idx++] = buf[row_start + 2 * px - 1];
-      }
+        gray[idx++] = buf[row_start + 2 * px];
     }
   }
   
@@ -249,11 +243,11 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
     }
   }
 
-  *worst_direction = (worst_row >= 0) ? (worst_row * 100 / w) : 0;
+  *worst_direction = worst_row;
   *best_dist = max_avg_height;
   *worst_dist = min_avg_height;
   free(column_heights);
-  *best_direction = (best_row >= 0) ? (best_row * 100 / w) : 0;
+  *best_direction = best_row;
 
 }
 
@@ -302,20 +296,55 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   // }
   
   // 3) Find best row ## 90 DEGREES TURNED!!
-  int best_dist = 0;
-  int best_direction = 0;
-  int worst_direction = 0;
-  int worst_dist = 0;
+  int best_dist = 0;              // 0 - cut_off_limit * 240
+  int best_direction = 0;         // 0 - 520
+  int worst_direction = 0;        // 0 - 520
+  int worst_dist = 0;             // 0 - cut_off_limit * 240
   find_best_column(img, edges, w, h, &best_dist, &best_direction, &worst_direction, &worst_dist, offset_y, adjusted_h);
 
+  // VERBOSE_PRINT("Worst dist: %d, Best dist: %d\n", worst_dist, best_dist);
+
   // If best_dist is too small => "unsafe"
-  int min_safe_dist = w / 4;
+  int middle_danger_zone = h / 4; // The considered width of the middle in pixels, 52 = 10% of 520
+  int min_safe_dist = w / 4; // Minimally required distance between bottom and first edge in the middle to be SAFE 
+
+  int middle_start = h / 2 - middle_danger_zone / 2;
+  int middle_end = h / 2 + middle_danger_zone / 2;
+
+  bool possible_obstacle_in_center = false;
+  if (worst_direction >= middle_start && worst_direction <= middle_end) {
+    if (worst_dist < min_safe_dist) {
+      possible_obstacle_in_center = true;
+    }
+  }
+  
+
+  // Draw bounding lines for the middle danger zone
+  uint8_t *buf = (uint8_t *)img->buf;
+
+  // Draw the top boundary of the middle danger zone
+  for (int x = 0; x < min_safe_dist; x++) {
+    buf[(middle_start) * w * 2 + x * 2 + 1] = 76;  // Y (brightness for red)
+    buf[(middle_start) * w * 2 + x * 2 + 0] = 85;  // U (chrominance for red)
+    buf[(middle_start) * w * 2 + x * 2 + 3] = 255; // V (chrominance for red)
+
+    buf[(middle_end) * w * 2 + x * 2 + 1] = 29;  // Y (brightness for blue)
+    buf[(middle_end) * w * 2 + x * 2 + 0] = 255; // U (chrominance for blue)
+    buf[(middle_end) * w * 2 + x * 2 + 3] = 107; // V (chrominance for blue)
+  }
+  // Draw the sides of the middle danger zone bounding box
+  for (int y = middle_start; y <= middle_end; y++) {
+    buf[y * w * 2 + min_safe_dist * 2 + 1] = 29;  // Y (brightness for blue)
+    buf[y * w * 2 + min_safe_dist * 2 + 0] = 255; // U (chrominance for blue)
+    buf[y * w * 2 + min_safe_dist * 2 + 3] = 107; // V (chrominance for blue)
+  }
+
+  // Not how its supposed to work but still have to fix this
   if (best_dist < min_safe_dist) {
     horizon_black_percent = 0.f;
   } else {
     horizon_black_percent = 100.f;
   }
-
   // VERBOSE_PRINT("Canny-like best_col=%d best_dist=%d => black%%=%.1f\n",
   //               best_column, best_dist, horizon_black_percent);
 
