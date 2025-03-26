@@ -16,18 +16,6 @@
     DYNAMIC SETTINGS:
     The code that parses these is quite strict about requiring a 'type', 'default', 'min', 'max', etc.
   -->
-  <settings>
-   <dl_settings>   <!-- outer wrapper -->
-     <dl_settings name="HorizonDrawer">  <!-- group name -->
-       <dl_setting var="horizon_threshold"
-                   type="float"
-                   min="0"
-                   step="1"
-                   max="100"
-                   shortname="HThresh"/>
-     </dl_settings>
-   </dl_settings>
-  </settings>
 
 
   <header>
