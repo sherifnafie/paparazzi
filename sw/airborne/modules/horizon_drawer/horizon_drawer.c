@@ -420,12 +420,14 @@ void horizon_drawer_periodic(void)
 /*                       Helper Functions                             */
 /* ------------------------------------------------------------------ */
 
+
 static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row)
 {
+  const float unsafe_limit = 0.6f * (float)w;
   int dist = 0;
   bool found_edge = false;
 
-  // scan from left to right as the image is rotated 90 degrees
+  // scan from left to right
   uint8_t *buf = (uint8_t *)img->buf;
   for (int x = 0; x < w; x++) {
     int idx = row * w + x;
@@ -438,7 +440,12 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
   }
 
   if (!found_edge) {
-    dist = 0; // no edge => effectively the entire row is free
+    dist = w; // no edge => effectively the entire row is free
+  }
+
+  // If distance >= unsafe limit => set dist=0 => "unsafe"
+  if ((float)dist >= unsafe_limit) {
+    dist = 0;
   }
 
   return dist;
