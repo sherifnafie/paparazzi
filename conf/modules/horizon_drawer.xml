@@ -16,7 +16,15 @@
     DYNAMIC SETTINGS:
     The code that parses these is quite strict about requiring a 'type', 'default', 'min', 'max', etc.
   -->
-
+  <settings>
+    <dl_settings>
+      <dl_settings name="DangerZoneVariables">
+        <dl_setting var="middle_danger_zone" min="0" step="2" max="520" shortname="width_danger_zone"/>
+        <dl_setting var="min_safe_dist" min="0" step="1" max="110" shortname="height_danger_zone"/>
+        <dl_setting var="skip_percentage" min="0.0" step="0.05" max="0.45" shortname="what_percentage_of_side_to_skip"/>
+      </dl_settings>
+    </dl_settings>
+  </settings>
 
   <header>
     <file name="horizon_drawer.h"/>

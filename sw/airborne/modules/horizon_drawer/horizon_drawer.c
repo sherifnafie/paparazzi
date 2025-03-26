@@ -49,15 +49,15 @@ static float heading_increment_obstacle_found = 5.f;
 static const int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
-static const int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
-static const int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
-static const float skip_percentage = 0.1f; // skip the top and bottom 10%
-static const int im_height = 520;
+int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
+int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
+float skip_percentage = 0.1f; // skip the top and bottom 10%
+static int im_height = 520;
 
-static const int middle_start = im_height / 2 - middle_danger_zone / 2;
-static const int middle_end = im_height / 2 + middle_danger_zone / 2;
-static const int adjusted_h = im_height * (1.0f - 2.0f * skip_percentage);
-static const int offset_y = im_height * skip_percentage;
+static int middle_start;
+static int middle_end;
+static int adjusted_h;
+static int offset_y;
 
 /* Navigation states */
 enum navigation_state_t {
@@ -156,7 +156,7 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
 static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist, int *best_direction, int *worst_direction, int *worst_dist)
 {
   // Adjust the height to exclude the top and bottom, which are actually the sides since the image is rotated, calculate heights
-  int *column_heights = (int *)malloc(adjusted_h * sizeof(int));
+  int column_heights[adjusted_h];
   for (int y = 0; y < adjusted_h; y++) {
     column_heights[y] = measureSingleColumnDistance(img, edge, w, h, y);
   }
@@ -228,7 +228,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   *best_dist = max_avg_height;
   *worst_dist = min_avg_height;
   *best_direction = best_row;
-  free(column_heights);
+
   return 0;
 }
 
@@ -280,10 +280,8 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // 4) Check if there is an obstacle in the middle danger zone
   bool pos_obstacle = false;
-  if (worst_direction >= middle_start && worst_direction <= middle_end) {
-    if (worst_dist < min_safe_dist) {
+  if (worst_dist < min_safe_dist) {
       pos_obstacle = true;
-    }
   }
 
   pthread_mutex_lock(&mutex);
@@ -316,21 +314,27 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
 void horizon_drawer_init(void)
 {
-  pthread_mutex_init(&mutex, NULL);
-  srand(time(NULL));
-  chooseRandomIncrementAvoidance();
+    pthread_mutex_init(&mutex, NULL);
+    srand(time(NULL));
+    chooseRandomIncrementAvoidance();
 
-  VERBOSE_PRINT("Module initialized.\n");
+    VERBOSE_PRINT("Module initialized.\n");
 
-  // Register this module with the camera pipeline
-  cv_add_to_device(&front_camera, horizon_drawer_detect, 0, 0);
+    // Register this module with the camera pipeline
+    cv_add_to_device(&front_camera, horizon_drawer_detect, 0, 0);
 
-  // Start out searching
-  navigation_state = SEARCH_FOR_SAFE_HEADING;
-  obstacle_free_confidence = 0;
-  heading_increment_obstacle_found = 0;
-  best_column = -1;
-  possible_obstacle_in_center = false;
+    // Perform runtime calculations for dependent variables
+    middle_start = im_height / 2 - middle_danger_zone / 2;
+    middle_end = im_height / 2 + middle_danger_zone / 2;
+    adjusted_h = im_height * (1.0f - 2.0f * skip_percentage);
+    offset_y = im_height * skip_percentage;
+
+    // Start out searching
+    navigation_state = SEARCH_FOR_SAFE_HEADING;
+    obstacle_free_confidence = 0;
+    heading_increment_obstacle_found = 0;
+    best_column = -1;
+    possible_obstacle_in_center = false;
 }
 
 void horizon_drawer_periodic(void)
