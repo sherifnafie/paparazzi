@@ -59,8 +59,8 @@ static bool possible_obstacle_in_center = false;
 /* Extra offset (in degrees) to steer left or right */
 static float extra_heading_offset = 0.0f;
 
-static const int middle_danger_zone = 150; // The considered width of the middle in pixels, 52 = 10% of 520
-static const int min_safe_dist = 45; // Minimally required distance between bottom and first edge in the middle to be SAFE 
+static const int middle_danger_zone = 100; // The considered width of the middle in pixels, 52 = 10% of 520
+static const int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
 
 static const int middle_start = 520 / 2 - middle_danger_zone / 2;
 static const int middle_end = 520 / 2 + middle_danger_zone / 2;
@@ -227,7 +227,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   // Set the entire best_row to 255 in the input image
   if (best_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
-    for (int x = 0; x < w; x++) {
+    for (int x = 0; x < max_avg_height; x++) {
       buf[best_row * w * 2 + x * 2 + 1] = 149; // Y (brightness for green)
       buf[best_row * w * 2 + x * 2 + 0] = 43;  // U (chrominance for green)
       buf[best_row * w * 2 + x * 2 + 3] = 21;  // V (chrominance for green)
@@ -262,7 +262,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   // Set the entire best_row to 255 in the input image
   if (worst_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
-    for (int x = 0; x < w; x++) {
+    for (int x = 0; x < min_avg_height; x++) {
       buf[worst_row * w * 2 + x * 2 + 1] = 255; // Y1
     }
   }
