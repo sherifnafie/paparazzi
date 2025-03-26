@@ -56,10 +56,7 @@ static float heading_increment_obstacle_found = 5.f;
 static const int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
-/* Extra offset (in degrees) to steer left or right */
-static float extra_heading_offset = 0.0f;
-
-static const int middle_danger_zone = 100; // The considered width of the middle in pixels, 52 = 10% of 520
+static const int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
 static const int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
 
 static const int middle_start = 520 / 2 - middle_danger_zone / 2;
@@ -88,13 +85,6 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
 
 static int best_column = -1; // -1 => none found
 static pthread_mutex_t mutex;
-
-struct direction_info {
-  int32_t best_dir;
-  int32_t worst_dir;
-  int32_t best_col_height;
-  int32_t worst_col_height;
-};
 
 /* ------------------------------------------------------------------ */
 /*  Canny-like steps                                                  */
@@ -134,7 +124,7 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h, 
 {
   memset(edge_out, 0, w*adjusted_h); // initialize to 0
   // For simplicity, skip the border
-  const int EDGE_THRESH = 88; // tune this
+  const int EDGE_THRESH = 85; // tune this
 
   // Adjust the height to exclude the top and bottom #### IMAGE IS ROTATED SO WE ONLY TAKE MIDDLE ROWS
   for (int y = 1; y < adjusted_h - 1; y++) {
@@ -167,37 +157,6 @@ static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h, 
     }
   }
 }
-
-/**
- * For each column, we scan from bottom to top, look for the first edge_out[y*w + x] = 255.
- * The "distance" is (h-1 - y).
- * We pick the column that yields the largest distance,
- * ignoring columns that exceed 55% => "unsafe => distance=0"
- */
-// static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist)
-// {
-//   int best_row = -1;
-//   int best_val = -1;
-
-//   for (int y = 0; y < h; y++) {
-//     int dist = measureSingleColumnDistance(img, edge, w, h, y);
-//     if (dist > best_val) {
-//       best_val = dist;
-//       best_row = y;
-//     }
-//   }
-
-//   // Set the entire best_row to 255 in the input image
-//   if (best_row >= 0) {
-//     uint8_t *buf = (uint8_t *)img->buf;
-//     for (int x = 0; x < w; x++) {
-//       buf[best_row * w * 2 + x * 2 + 1] = 255; // Y1
-//     }
-//   }
-
-//   *best_dist = best_val;
-//   return best_row;
-// }
 
 static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int h, int *best_dist, int *best_direction, int *worst_direction, int *worst_dist, int offset_y, int adjusted_h)
 {
@@ -235,7 +194,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
     }
   }
 
-  // Worst Direction
+  // Worst Direction ### only calculate in the middle danger zone
   int min_avg_height = 255;
   int worst_row = 0;
   for (int y = middle_start-offset_y; y <= middle_start-offset_y + middle_danger_zone - num_neighbors + 1; y++) {
@@ -258,13 +217,15 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
       }
     }
   }
-  
   worst_row += offset_y;
-  // Set the entire best_row to 255 in the input image
+
+  // Set the worst_row to 255 in the input image
   if (worst_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
     for (int x = 0; x < min_avg_height; x++) {
-      buf[worst_row * w * 2 + x * 2 + 1] = 255; // Y1
+      buf[worst_row * w * 2 + x * 2 + 1] = 76;  // Y (brightness for red)
+      buf[worst_row * w * 2 + x * 2 + 0] = 85;  // U (chrominance for red)
+      buf[worst_row * w * 2 + x * 2 + 3] = 255; // V (chrominance for red)
     }
   }
 
@@ -285,7 +246,6 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   if (!img || !img->buf) {
     horizon_black_percent = 50.f; // fallback
     best_column = -1;
-    extra_heading_offset = 0.0f;
     return img;
   }
 
@@ -300,7 +260,6 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   if (w*h > 2000*2000) {
     horizon_black_percent = 0.f;
     best_column = -1;
-    extra_heading_offset = 0.0f;
     return img;
   }
   extractY(img, gray, offset_y, adjusted_h);
@@ -362,38 +321,6 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
     buf[y * w * 2 + min_safe_dist * 2 + 3] = 107; // V (chrominance for blue)
   }
 
-
-  // ----------------------------------------------------------------
-  //   EXTRA STEERING LOGIC:
-  //   We look at the columns to the immediate left/right of best_column
-  //   whichever side has a bigger distance => tilt slightly that way
-  // ----------------------------------------------------------------
-  extra_heading_offset = 0.0f; // default
-  if (best_column >= 0) {
-    int left_col = best_column - 1;
-    int right_col = best_column + 1;
-
-    int dist_left = 0;
-    if (left_col >= 0) {
-      dist_left = measureSingleColumnDistance(img, edges, w, h, left_col, offset_y);
-    }
-
-    int dist_right = 0;
-    if (right_col < w) {
-      dist_right = measureSingleColumnDistance(img, edges, w, h, right_col, offset_y);
-    }
-
-    // If left is bigger => turn left a bit
-    // If right is bigger => turn right a bit
-    // pick an angle, e.g. 3 deg
-    if (dist_left > dist_right) {
-      extra_heading_offset = +5.f;  // steer a bit left
-    } else if (dist_right > dist_left) {
-      extra_heading_offset = -5.f;  // steer a bit right
-    }
-    // if equal => 0
-  }
-
   return img; // must return the image pointer
 }
 
@@ -417,7 +344,6 @@ void horizon_drawer_init(void)
   obstacle_free_confidence = 0;
   heading_increment_obstacle_found = 0;
   best_column = -1;
-  extra_heading_offset = 0.0f;
   possible_obstacle_in_center = false;
 }
 
@@ -457,10 +383,6 @@ void horizon_drawer_periodic(void)
   switch (navigation_state) {
 
     case SAFE:
-      // Optionally steer extra, based on the best_column neighbors
-      // e.g. we do it once per iteration
-      // increase_nav_heading(extra_heading_offset);
-
       // In principle, we might want to steer toward best_column if it's good,
       // but let's keep your old logic for waypoint movement:
       moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
