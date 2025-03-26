@@ -237,18 +237,27 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   // Worst Direction
   int min_avg_height = 255;
   int worst_row = 0;
-
-  for (int y = 0; y < adjusted_h - num_neighbors + 1; y++) {
+  for (int y = middle_start-offset_y; y <= middle_start-offset_y + middle_danger_zone - num_neighbors + 1; y++) {
     int sum_height = 0;
+    int valid_neighbors = 0;
+
     for (int n = 0; n < num_neighbors; n++) {
-      sum_height += column_heights[y + n];
+      if (column_heights[y + n] > 0) { // Only consider valid heights
+        sum_height += column_heights[y + n];
+        valid_neighbors++;
+      }
     }
-    int avg_height = sum_height / num_neighbors;
-    if (avg_height < min_avg_height) {
-      min_avg_height = avg_height;
-      worst_row = y + num_neighbors / 2; // center of the neighboring columns
+
+    if (valid_neighbors > 0) { // Avoid division by zero
+      int avg_height = sum_height / valid_neighbors;
+
+      if (avg_height < min_avg_height) {
+        min_avg_height = avg_height;
+        worst_row = y + num_neighbors / 2; // center of the neighboring columns
+      }
     }
   }
+  
   worst_row += offset_y;
   // Set the entire best_row to 255 in the input image
   if (worst_row >= 0) {
