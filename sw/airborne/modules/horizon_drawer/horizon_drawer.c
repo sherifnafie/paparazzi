@@ -229,7 +229,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   *worst_dist = min_avg_height;
   *best_direction = best_row;
   free(column_heights);
-
+  return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -314,12 +314,8 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
   return img; // must return the image pointer
 }
 
-/* ------------------------------------------------------------------ */
-/*                     horizon_drawer_init()                          */
-/* ------------------------------------------------------------------ */
 void horizon_drawer_init(void)
 {
-
   pthread_mutex_init(&mutex, NULL);
   srand(time(NULL));
   chooseRandomIncrementAvoidance();
@@ -337,9 +333,6 @@ void horizon_drawer_init(void)
   possible_obstacle_in_center = false;
 }
 
-/* ------------------------------------------------------------------ */
-/*                    horizon_drawer_periodic()                       */
-/* ------------------------------------------------------------------ */
 void horizon_drawer_periodic(void)
 {
   if (!autopilot_in_flight()) {
@@ -358,7 +351,6 @@ void horizon_drawer_periodic(void)
     obstacle_free_confidence++;
   }
 
-
   // Bound obstacle_free_confidence
   if (obstacle_free_confidence < 0) {
     obstacle_free_confidence = 0;
@@ -373,8 +365,7 @@ void horizon_drawer_periodic(void)
   switch (navigation_state) {
 
     case SAFE:
-      // In principle, we might want to steer toward best_column if it's good,
-      // but let's keep your old logic for waypoint movement:
+    
       moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
 
       if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
