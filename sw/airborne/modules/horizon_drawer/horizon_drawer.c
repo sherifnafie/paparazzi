@@ -86,14 +86,15 @@ static float chooseBestDirectionChange(int best_direction);
 
 static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int col, int offset_y);
 
-/* We'll also keep track of the "best column" that we found, so we can
- * do something with it in horizon_drawer_periodic (e.g. turn heading that way).
- */
 static int best_column = -1; // -1 => none found
+static pthread_mutex_t mutex;
 
-static pthread_mutex_t possible_obstacle_mutex = PTHREAD_MUTEX_INITIALIZER;
-static pthread_mutex_t best_direction_mutex = PTHREAD_MUTEX_INITIALIZER;
-
+struct direction_info {
+  int32_t best_dir;
+  int32_t worst_dir;
+  int32_t best_col_height;
+  int32_t worst_col_height;
+};
 
 /* ------------------------------------------------------------------ */
 /*  Canny-like steps                                                  */
@@ -328,18 +329,18 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 
   // VERBOSE_PRINT("Worst dist: %d, Best dist: %d\n", worst_dist, best_dist);
 
-  pthread_mutex_lock(&best_direction_mutex);
-  best_direction_global = best_direction;
-  pthread_mutex_unlock(&best_direction_mutex);
-
-  pthread_mutex_lock(&possible_obstacle_mutex);
-  possible_obstacle_in_center = false;
+  // 4) Check if there is an obstacle in the middle danger zone
+  bool pos_obstacle = false;
   if (worst_direction >= middle_start && worst_direction <= middle_end) {
     if (worst_dist < min_safe_dist) {
-      possible_obstacle_in_center = true;
+      pos_obstacle = true;
     }
   }
-  pthread_mutex_unlock(&possible_obstacle_mutex);
+
+  pthread_mutex_lock(&mutex);
+  possible_obstacle_in_center = pos_obstacle;
+  best_direction_global = best_direction;
+  pthread_mutex_unlock(&mutex);
 
   // Draw bounding lines for the middle danger zone
   uint8_t *buf = (uint8_t *)img->buf;
@@ -401,6 +402,8 @@ static struct image_t *horizon_drawer_detect(struct image_t *img, uint8_t cam_id
 /* ------------------------------------------------------------------ */
 void horizon_drawer_init(void)
 {
+
+  pthread_mutex_init(&mutex, NULL);
   srand(time(NULL));
   chooseRandomIncrementAvoidance();
 
@@ -427,18 +430,18 @@ void horizon_drawer_periodic(void)
     return;
   }
 
-  pthread_mutex_lock(&possible_obstacle_mutex);
-  if (possible_obstacle_in_center) {
+  pthread_mutex_lock(&mutex);
+  bool pos_obs_center = possible_obstacle_in_center;
+  int best_direction_local = best_direction_global;
+  pthread_mutex_unlock(&mutex);
+
+  if (pos_obs_center) {
     obstacle_free_confidence -= 2;
     VERBOSE_PRINT("Possible obstacle in center, confidence: %d\n", obstacle_free_confidence);
   } else {
     obstacle_free_confidence++;
   }
-  pthread_mutex_unlock(&possible_obstacle_mutex);
 
-  pthread_mutex_lock(&best_direction_mutex);
-  int best_direction_local = best_direction_global;
-  pthread_mutex_unlock(&best_direction_mutex);
 
   // Bound obstacle_free_confidence
   if (obstacle_free_confidence < 0) {
