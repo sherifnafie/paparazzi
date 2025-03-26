@@ -420,19 +420,12 @@ void horizon_drawer_periodic(void)
 /*                       Helper Functions                             */
 /* ------------------------------------------------------------------ */
 
-/**
- * measureSingleColumnDistance():
- *   We replicate the same logic from find_best_column for a single column,
- *   including the 55% "unsafe" filter.
- */
-
 static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge, int w, int h, int row)
 {
-  const float unsafe_limit = 0.55f * (float)w;
   int dist = 0;
   bool found_edge = false;
 
-  // scan from left to right
+  // scan from left to right as the image is rotated 90 degrees
   uint8_t *buf = (uint8_t *)img->buf;
   for (int x = 0; x < w; x++) {
     int idx = row * w + x;
@@ -445,12 +438,7 @@ static int measureSingleColumnDistance(struct image_t *img, const uint8_t *edge,
   }
 
   if (!found_edge) {
-    dist = w; // no edge => effectively the entire row is free
-  }
-
-  // If distance >= 55% => set dist=0 => "unsafe"
-  if ((float)dist >= unsafe_limit) {
-    dist = 0;
+    dist = 0; // no edge => effectively the entire row is free
   }
 
   return dist;
