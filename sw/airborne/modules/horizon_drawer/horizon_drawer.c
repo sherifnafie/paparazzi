@@ -44,9 +44,9 @@
 static int16_t obstacle_free_confidence = 0;
 static int16_t best_direction_global = 0;
 static float maxDistance = 2.25f;
-static float heading_increment = 5.f;
-static float heading_increment_obstacle_found = 5.f;
-static const int16_t max_trajectory_confidence = 4;
+float heading_increment = 5.f;
+float heading_increment_obstacle_found = 5.f;
+int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
 int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
