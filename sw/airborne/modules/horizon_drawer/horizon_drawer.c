@@ -217,9 +217,7 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   if (worst_row >= 0) {
     uint8_t *buf = (uint8_t *)img->buf;
     for (int x = 0; x < min_avg_height; x++) {
-      buf[worst_row * w * 2 + x * 2 + 1] = 76;  // Y (brightness for red)
-      buf[worst_row * w * 2 + x * 2 + 0] = 85;  // U (chrominance for red)
-      buf[worst_row * w * 2 + x * 2 + 3] = 255; // V (chrominance for red)
+      buf[worst_row * w * 2 + x * 2 + 1] = 255; // Y (brightness for white)
     }
   }
 
