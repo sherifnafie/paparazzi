@@ -67,7 +67,7 @@ enum navigation_state_t {
 // define and initialise global variables
 enum navigation_state_t navigation_state = SEARCH_FOR_SAFE_HEADING;
 int16_t safety_rating = 0;   
-int16_t safety_minimum = 420;             
+int16_t safety_minimum = 100;             
 int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 float heading_increment = 5.f;          // heading angle increment [deg]
 float maxDistance = 2.25;               // max waypoint displacement [m]
@@ -103,17 +103,17 @@ void object_avoider_init(void)
 
 void object_avoider_periodic(void)
 {
-  // print model ouput
-  printf("safety grid: \n");
+  // // print model ouput
+  // printf("safety grid: \n");
 
-  // loop array
-  for (int i = 0; i < 384; i++) {
-    printf("%f ", safety_grid[i]);
+  // // loop array
+  // for (int i = 0; i < 384; i++) {
+  //   printf("%f ", safety_grid[i]);
 
-    if ((i + 1) % 32 == 0) {
-      printf("\n");  // Print new line after every 16th element
-    }
-  }
+  //   if ((i + 1) % 32 == 0) {
+  //     printf("\n");  // Print new line after every 16th element
+  //   }
+  // }
   safety_rating = get_safety_rating();
 
   // only evaluate our state machine if we are flying
@@ -122,11 +122,12 @@ void object_avoider_periodic(void)
   }
 
   // update our safe confidence using color threshold
-  if(safety_rating < safety_minimum){
+  if(safety_rating > safety_minimum){
     obstacle_free_confidence++;
   } else {
     obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
   }
+  printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
 
   // bound obstacle_free_confidence
   Bound(obstacle_free_confidence, 0, max_trajectory_confidence);
@@ -312,10 +313,10 @@ int16_t get_safety_rating(void)
   // Calculate the sum of the array
   float sum = array_sum(box_array, combined_size);
 
-  printf("Sum: %f\n", sum);
-  printf("Combined size: %d\n", combined_size);
+  //printf("Sum: %f\n", sum);
+  //printf("Combined size: %d\n", combined_size);
   // Calculate the average
-  int16_t result = (int16_t)((float)sum / combined_size * 1000);
+  int16_t result = (int16_t)((float)sum / combined_size);
   // Print the average
   printf("Safety rating: %d\n", result);
 
