@@ -191,8 +191,8 @@
 
   <!-- Guidance H Section -->
   <section name="GUIDANCE_H" prefix="GUIDANCE_H_">
-    <define name="MAX_BANK" value="20" unit="deg"/>
-    <define name="REF_MAX_SPEED" value="0.5" unit="m/s"/>
+    <define name="MAX_BANK" value="22" unit="deg"/>
+    <define name="REF_MAX_SPEED" value="0.7" unit="m/s"/>
     <define name="PGAIN" value="120"/>
     <define name="DGAIN" value="230"/>
     <define name="IGAIN" value="40"/>
