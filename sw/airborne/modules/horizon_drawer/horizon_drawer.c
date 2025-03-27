@@ -52,6 +52,8 @@ static bool possible_obstacle_in_center = false;
 int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
 int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
 float skip_percentage = 0.1f; // skip the top and bottom 10%
+int num_neighbors = 10; // specify the number of neighboring columns to consider
+int EDGE_THRESH = 85; // Threshold for edge detection (0-255)
 static int im_height = 520;
 
 static int middle_start;
@@ -118,8 +120,6 @@ static void extractY(const struct image_t *img, uint8_t *gray)
 static void sobel_edge(const uint8_t *gray_in, uint8_t *edge_out, int w, int h)
 {
   memset(edge_out, 0, w*adjusted_h); // initialize to 0
-  // For simplicity, skip the border
-  const int EDGE_THRESH = 85; // tune this
 
   // Adjust the height to exclude the top and bottom #### IMAGE IS ROTATED SO WE ONLY TAKE MIDDLE ROWS
   for (int y = 1; y < adjusted_h - 1; y++) {
@@ -163,7 +163,6 @@ static int find_best_column(struct image_t *img, const uint8_t *edge, int w, int
   //Initialize
   int max_avg_height = 0;
   int best_row = 0;
-  int num_neighbors = 10; // specify the number of neighboring columns to consider
 
   // Best Direction
   for (int y = 0; y < adjusted_h - num_neighbors + 1; y++) {

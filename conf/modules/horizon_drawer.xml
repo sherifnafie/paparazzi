@@ -18,10 +18,12 @@
   -->
   <settings>
     <dl_settings>
-      <dl_settings name="DangerZoneVariables">
+      <dl_settings name="DangerZone_and_EdgeDetection_Variables">
         <dl_setting var="middle_danger_zone" min="0" step="2" max="520" shortname="width_danger_zone"/>
         <dl_setting var="min_safe_dist" min="0" step="1" max="110" shortname="height_danger_zone"/>
         <dl_setting var="skip_percentage" min="0.0" step="0.05" max="0.45" shortname="what_percentage_of_side_to_skip"/>
+        <dl_setting var="num_neighbors" min="0" step="1" max="150" shortname="number_of_neighbours_for_edge_detection"/>
+        <dl_setting var="EDGE_THRESH" min="0" step="1" max="255" shortname="Edge_Threshold_for_edge_detection"/>
       </dl_settings>
     </dl_settings>
   </settings>
