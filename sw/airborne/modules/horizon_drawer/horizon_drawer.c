@@ -40,12 +40,16 @@
   #define VERBOSE_PRINT(...)
 #endif
 
+static int circular_behavior_counter = 0;
+static const int MAX_CIRCULAR_BEHAVIOR = 70;
+
 /* Confidence tracking and state machine */
 static int16_t obstacle_free_confidence = 0;
 static int16_t best_direction_global = 0;
 static float maxDistance = 2.25f;
-float heading_increment = 5.f;
+float heading_increment = 8.f;
 float heading_increment_obstacle_found = 5.f;
+float heading_increment_oob = 5.f;
 int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
@@ -359,7 +363,7 @@ void horizon_drawer_periodic(void)
     obstacle_free_confidence = max_trajectory_confidence;
   }
 
-  VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
+  // VERBOSE_PRINT("Confidence: %d\n", obstacle_free_confidence);
 
   float moveDistance = fminf(maxDistance, 0.25f * obstacle_free_confidence);
 
@@ -370,6 +374,7 @@ void horizon_drawer_periodic(void)
       moveWaypointForward(WP_TRAJECTORY, 1.5f * moveDistance);
 
       if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
+        heading_increment_obstacle_found = chooseBestDirectionChange(best_direction_local);
         navigation_state = OUT_OF_BOUNDS;
       }
       else if (obstacle_free_confidence == 0) {
@@ -387,26 +392,33 @@ void horizon_drawer_periodic(void)
       waypoint_move_here_2d(WP_RETREAT);
       waypoint_move_here_2d(WP_TRAJECTORY);
 
-      chooseRandomIncrementAvoidance();
       heading_increment_obstacle_found = chooseBestDirectionChange(best_direction_local);
       navigation_state = SEARCH_FOR_SAFE_HEADING;
       break;
 
     case SEARCH_FOR_SAFE_HEADING:
-      increase_nav_heading(heading_increment);
+      increase_nav_heading(heading_increment_obstacle_found);
 
       if (obstacle_free_confidence >= 2) {
         navigation_state = SAFE;
+        circular_behavior_counter = 0;
+      } else {
+        circular_behavior_counter++;
+        if (circular_behavior_counter > MAX_CIRCULAR_BEHAVIOR) {
+          VERBOSE_PRINT("Circular behavior detected, resetting heading increment and go slightly forward.\n");
+          moveWaypointForward(WP_GOAL, 0.5f);
+          circular_behavior_counter = 0;
+        }
       }
       break;
 
     case OUT_OF_BOUNDS:
-      increase_nav_heading(heading_increment);
+      increase_nav_heading(heading_increment_obstacle_found);
       moveWaypointForward(WP_TRAJECTORY, 1.5f);
       moveWaypointForward(WP_RETREAT, -1.0f);
 
       if (InsideObstacleZone(WaypointX(WP_TRAJECTORY), WaypointY(WP_TRAJECTORY))) {
-        increase_nav_heading(heading_increment);
+        increase_nav_heading(heading_increment_obstacle_found);
         obstacle_free_confidence = 0;
         navigation_state = SEARCH_FOR_SAFE_HEADING;
       }
@@ -500,9 +512,9 @@ static uint8_t increase_nav_heading(float incrementDegrees)
 static uint8_t chooseRandomIncrementAvoidance(void)
 {
   if (rand() % 2 == 0) {
-    heading_increment = 5.f;
+    heading_increment = 6.f;
   } else {
-    heading_increment = -5.f;
+    heading_increment = -6.f;
   }
   VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment);
   return 0;
@@ -511,12 +523,25 @@ static uint8_t chooseRandomIncrementAvoidance(void)
 static float chooseBestDirectionChange(int best_direction)
 {
   float heading_increment_obstacle_found = 0.0f;
-  if (best_direction >= 50) {
-    heading_increment_obstacle_found = (((float)best_direction - 50.0f) / 50.0f) * 45.0f;
+
+  if (best_direction >= 260) {
+    heading_increment_obstacle_found = (((float)best_direction - 260.0f) / 260.0f) * 15.0f;
   } else {
-    heading_increment_obstacle_found = ((float)best_direction / 50.0f) * 45.0f;
+    heading_increment_obstacle_found = ((float)best_direction / 260.0f) * -15.0f;
   }
-  VERBOSE_PRINT("chooseRandomIncrement: heading_increment=%.2f\n", heading_increment_obstacle_found);
+
+  // Explicitly clamp the value to the range [-8.0f, -3.5f] or [3.5f, 8.0f]
+  if (heading_increment_obstacle_found > 8.0f) {
+    heading_increment_obstacle_found = 8.0f;
+  } else if (heading_increment_obstacle_found < -8.0f) {
+    heading_increment_obstacle_found = -8.0f;
+  } else if (heading_increment_obstacle_found > 0.0f && heading_increment_obstacle_found < 3.5f) {
+    heading_increment_obstacle_found = 3.5f;
+  } else if (heading_increment_obstacle_found < 0.0f && heading_increment_obstacle_found > -3.5f) {
+    heading_increment_obstacle_found = -3.5f;
+  }
+
+  VERBOSE_PRINT("chooseBestDirectionChange: heading_increment=%.2f\n", heading_increment_obstacle_found);
   return heading_increment_obstacle_found;
 }
 
