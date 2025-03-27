@@ -43,7 +43,7 @@
 #endif
 
 #define box_height 9
-#define box_width 6
+#define box_width 8
  
 static uint8_t moveWaypointForward(uint8_t waypoint, float distanceMeters);
 static uint8_t calculateForwards(struct EnuCoor_i *new_coor, float distanceMeters);
@@ -67,7 +67,7 @@ enum navigation_state_t {
 // define and initialise global variables
 enum navigation_state_t navigation_state = SEARCH_FOR_SAFE_HEADING;
 int16_t safety_rating = 0;   
-int16_t safety_minimum = 100;             
+int16_t safety_minimum = 125;           // minimum safety rating to be considered safe 
 int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 float heading_increment = 5.f;          // heading angle increment [deg]
 float maxDistance = 2.25;               // max waypoint displacement [m]
@@ -125,7 +125,7 @@ void object_avoider_periodic(void)
   if(safety_rating > safety_minimum){
     obstacle_free_confidence++;
   } else {
-    obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
+    obstacle_free_confidence -= 3;  // be more cautious with positive obstacle detections
   }
   printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
 
@@ -296,15 +296,15 @@ float array_sum(float arr[], int size) {
 int16_t get_safety_rating(void)
 {
   int ranges[box_height][2] = {
-    {13, 18},
-    {45, 50},  
-    {77, 82},  
-    {109, 114},
-    {141, 146},
-    {173, 178},
-    {205, 210},
-    {237, 242},
-    {269, 274}  
+    {12, 19},
+    {44, 51},  
+    {76, 83},  
+    {108, 115},
+    {140, 147},
+    {172, 179},
+    {204, 211},
+    {236, 243},
+    {268, 275}  
   };
 
   // Make combined array
