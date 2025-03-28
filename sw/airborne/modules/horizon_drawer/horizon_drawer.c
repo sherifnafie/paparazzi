@@ -525,20 +525,20 @@ static float chooseBestDirectionChange(int best_direction)
   float heading_increment_obstacle_found = 0.0f;
 
   if (best_direction >= 260) {
-    heading_increment_obstacle_found = (((float)best_direction - 260.0f) / 260.0f) * 15.0f;
+    heading_increment_obstacle_found = (((float)best_direction - 260.0f) / 260.0f) * 25.0f;
   } else {
-    heading_increment_obstacle_found = ((float)best_direction / 260.0f) * -15.0f;
+    heading_increment_obstacle_found = ((float)best_direction / 260.0f) * -25.0f;
   }
 
   // Explicitly clamp the value to the range [-8.0f, -3.5f] or [3.5f, 8.0f]
-  if (heading_increment_obstacle_found > 8.0f) {
-    heading_increment_obstacle_found = 8.0f;
-  } else if (heading_increment_obstacle_found < -8.0f) {
-    heading_increment_obstacle_found = -8.0f;
-  } else if (heading_increment_obstacle_found > 0.0f && heading_increment_obstacle_found < 3.5f) {
-    heading_increment_obstacle_found = 3.5f;
-  } else if (heading_increment_obstacle_found < 0.0f && heading_increment_obstacle_found > -3.5f) {
-    heading_increment_obstacle_found = -3.5f;
+  if (heading_increment_obstacle_found > 10.0f) {
+    heading_increment_obstacle_found = 10.0f;
+  } else if (heading_increment_obstacle_found < -10.0f) {
+    heading_increment_obstacle_found = -10.0f;
+  } else if (heading_increment_obstacle_found >= -0.01f && heading_increment_obstacle_found < 4.5f) {
+    heading_increment_obstacle_found = 4.5f;
+  } else if (heading_increment_obstacle_found < 0.0f && heading_increment_obstacle_found > -4.5f) {
+    heading_increment_obstacle_found = -4.5f;
   }
 
   VERBOSE_PRINT("chooseBestDirectionChange: heading_increment=%.2f\n", heading_increment_obstacle_found);
