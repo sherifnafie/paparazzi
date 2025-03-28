@@ -47,6 +47,7 @@ static const int MAX_CIRCULAR_BEHAVIOR = 70;
 static int16_t obstacle_free_confidence = 0;
 static int16_t best_direction_global = 0;
 static float maxDistance = 2.25f;
+float TURNING_SENSITIVITY = 25.0f; // The sensitivity of the turning angle
 float heading_increment = 8.f;
 float heading_increment_obstacle_found = 5.f;
 float heading_increment_oob = 5.f;
@@ -54,7 +55,7 @@ int16_t max_trajectory_confidence = 4;
 static bool possible_obstacle_in_center = false;
 
 int middle_danger_zone = 110; // The considered width of the middle in pixels, 52 = 10% of 520
-int min_safe_dist = 60; // Minimally required distance between bottom and first edge in the middle to be SAFE 
+int min_safe_dist = 63; // Minimally required distance between bottom and first edge in the middle to be SAFE 
 float skip_percentage = 0.1f; // skip the top and bottom 10%
 int num_neighbors = 10; // specify the number of neighboring columns to consider
 int EDGE_THRESH = 85; // Threshold for edge detection (0-255)
@@ -525,9 +526,9 @@ static float chooseBestDirectionChange(int best_direction)
   float heading_increment_obstacle_found = 0.0f;
 
   if (best_direction >= 260) {
-    heading_increment_obstacle_found = (((float)best_direction - 260.0f) / 260.0f) * 25.0f;
+    heading_increment_obstacle_found = (((float)best_direction - 260.0f) / 260.0f) * TURNING_SENSITIVITY;
   } else {
-    heading_increment_obstacle_found = ((float)best_direction / 260.0f) * -25.0f;
+    heading_increment_obstacle_found = ((float)best_direction / 260.0f)  * -TURNING_SENSITIVITY;
   }
 
   // Explicitly clamp the value to the range [-8.0f, -3.5f] or [3.5f, 8.0f]
