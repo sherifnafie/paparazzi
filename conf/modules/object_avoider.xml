@@ -29,7 +29,7 @@ define which filter to use.
     <file name="object_avoider.h"/>
   </header>
   <init fun="object_avoider_init()"/>
-  <periodic fun="object_avoider_periodic()" freq="3"/>
+  <periodic fun="object_avoider_periodic()" freq="2"/>
   <makefile target="ap|nps">
     <file name="object_avoider.c"/>
   </makefile>
