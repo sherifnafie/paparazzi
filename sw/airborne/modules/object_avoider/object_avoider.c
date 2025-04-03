@@ -8,7 +8,7 @@
  #include "generated/airframe.h"
  #include "state.h"
  #include "modules/core/abi.h"
- #include "guidance_h.h"
+ #include "firmwares/rotorcraft/guidance/guidance_h.h"
  #include <time.h>
  #include <stdio.h>
   
@@ -24,7 +24,6 @@
  #define VERBOSE_PRINT(...)
  #endif
   
-  
  #ifndef TENSOR_OUTPUT_id
  #define TENSOR_OUTPUT_id ABI_BROADCAST
  #endif
@@ -33,6 +32,7 @@
  #define ROWS_TO_CONSIDER 9
  #define GRID_CONSIDERED (COLUMNS_TO_CONSIDER * ROWS_TO_CONSIDER)
  #define INCREMENT_STEP 6 // FOV/columns = 180/30 = 6, (32-borders=30)
+ #define CHECK_RANGE 20
   
  static uint8_t moveWaypointForward(uint8_t waypoint, float distanceMeters);
  static uint8_t calculateForwards(struct EnuCoor_i *new_coor, float distanceMeters);
@@ -56,7 +56,7 @@
  // define and initialise global variables
  enum navigation_state_t navigation_state = SEARCH_FOR_SAFE_HEADING;
  uint8_t safety_rating = 0;              // starting safety rating
- uint8_t safety_minimum = 80;            // minimum safety rating to be considered safe 
+ uint8_t safety_minimum = 70;            // minimum safety rating to be considered safe 
  int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 //  int8_t heading_increment = 10;          // heading angle increment [deg]
  float maxDistance = 2.25;               // max waypoint displacement [m]
@@ -64,7 +64,9 @@
  const int16_t max_trajectory_confidence = 4; // number of consecutive negative object detections to be sure we are obstacle free
  
  
- float safety_grid[GRID_CONSIDERED];                    // tensor output from the neural network
+ uint8_t safety_grid[GRID_CONSIDERED];
+ uint8_t temp_grid[CHECK_RANGE];
+ bool new = false;                   
  
  static abi_event tensor_output_ev;
  static void tensor_output_cb(uint8_t __attribute__((unused)) sender_id, float* tensor)
@@ -75,7 +77,7 @@
    }
    // copy tensor output to local variable safety_grid
    for (int i = 0; i < GRID_CONSIDERED; i++){
-     safety_grid[i] = tensor[i];
+     safety_grid[i] = (uint8_t)tensor[i];
    } 
  }
   
@@ -96,119 +98,135 @@
  
  void object_avoider_periodic(void)
  {
-  clock_t start, end;
-  float cpu_time_used;
-  // // print model ouput
-  // printf("safety grid: \n");
- 
-  // // loop array
-  // for (int i = 0; i < 384; i++) {
-  //   printf("%f ", safety_grid[i]);
- 
-  //   if ((i + 1) % 32 == 0) {
-  //     printf("\n");  // Print new line after every 16th element
-  //   }
-  // }
-  start = clock();
-  // get safety ratings for each column in the safety grid
-  uint8_t column_ratings[COLUMNS_TO_CONSIDER];
-  get_column_safety_ratings(column_ratings);
-   
-  safety_rating = get_safety_rating(column_ratings);
-
-  printf("Column safety ratings: \n");
-  for (int i = 0; i < COLUMNS_TO_CONSIDER; i++) {
-    printf("%d ", column_ratings[i]);
+  for (u_int8_t i = 0; i < CHECK_RANGE; i++){
+    if (temp_grid[i] != safety_grid[i]){
+      new = true;
+      break;
+    }
   }
-   
-  printf("Safety rating: %d\n", safety_rating);
- 
-  // only evaluate our state machine if we are flying
-  if(!autopilot_in_flight()){
-    return;
+
+  if (new){
+    for (u_int8_t i = 0; i < CHECK_RANGE; i++){
+      temp_grid[i] = safety_grid[i];
+    }
+    // printf("New safety grid: \n");
+
+    clock_t start, end;
+    float cpu_time_used;
+    // // print model ouput
+    // printf("safety grid: \n");
+  
+    // // loop array
+    // for (int i = 0; i < 384; i++) {
+    //   printf("%f ", safety_grid[i]);
+  
+    //   if ((i + 1) % 32 == 0) {
+    //     printf("\n");  // Print new line after every 16th element
+    //   }
+    // }
+    start = clock();
+    // get safety ratings for each column in the safety grid
+    uint8_t column_ratings[COLUMNS_TO_CONSIDER];
+    get_column_safety_ratings(column_ratings);
+    
+    safety_rating = get_safety_rating(column_ratings);
+
+    printf("Column safety ratings: \n");
+    for (int i = 0; i < COLUMNS_TO_CONSIDER; i++) {
+      printf("%d ", column_ratings[i]);
+    }
+    printf("\n");
+    printf("Safety rating: %d\n", safety_rating);
+  
+    // only evaluate our state machine if we are flying
+    if(!autopilot_in_flight()){
+      return;
+    }
+  
+    // update our safe confidence using color threshold
+    if(safety_rating > safety_minimum){
+      obstacle_free_confidence++;
+    } else {
+      obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
+    }
+    
+  
+    // bound obstacle_free_confidence
+    Bound(obstacle_free_confidence, 0, max_trajectory_confidence);
+    printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
+
+    float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
+
+    printf("Current state: %s\n", 
+    navigation_state == SAFE ? "SAFE" :
+    navigation_state == OBSTACLE_FOUND ? "OBSTACLE_FOUND" :
+    navigation_state == SEARCH_FOR_SAFE_HEADING ? "SEARCH_FOR_SAFE_HEADING" :
+    navigation_state == OUT_OF_BOUNDS ? "OUT_OF_BOUNDS" : "UNKNOWN");
+
+    switch (navigation_state){
+      case SAFE:
+        // Move waypoint forward
+        moveWaypointForward(WP_TRAJECTORY, 1.0f * moveDistance);
+        if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY),WaypointY(WP_TRAJECTORY))){
+          navigation_state = OUT_OF_BOUNDS;
+        } else if (obstacle_free_confidence == 0){
+          navigation_state = OBSTACLE_FOUND;
+        } else {
+          // float speed_sp = 0.5f + (0.15f * obstacle_free_confidence);
+          // guidance_h_set_body_vel(speed_sp, 0);
+          moveWaypointForward(WP_GOAL, moveDistance);
+          moveWaypointForward(WP_RETREAT, -1.0f * moveDistance);
+        }
+  
+        break;
+      case OBSTACLE_FOUND:
+        // stop
+        waypoint_move_here_2d(WP_GOAL);
+        waypoint_move_here_2d(WP_RETREAT);
+        waypoint_move_here_2d(WP_TRAJECTORY);
+  
+        // randomly select new search direction
+        //chooseRandomIncrementAvoidance();
+  
+        navigation_state = SEARCH_FOR_SAFE_HEADING;
+  
+        break;
+      case SEARCH_FOR_SAFE_HEADING:
+        int8_t heading_increment = get_heading_increment(column_ratings, safety_minimum);
+        printf("Heading increment: %d\n", heading_increment);
+
+        increase_nav_heading(heading_increment);
+        navigation_state = SAFE;
+        // make sure we have a couple of good readings before declaring the way safe
+        //  if (obstacle_free_confidence >= 2){
+        //    navigation_state = SAFE;
+        //  }
+        break;
+      case OUT_OF_BOUNDS:
+        increase_nav_heading(35.0f);
+        moveWaypointForward(WP_TRAJECTORY, 1.5f);
+        moveWaypointForward(WP_RETREAT, -1.0f);
+  
+        if (InsideObstacleZone(WaypointX(WP_TRAJECTORY),WaypointY(WP_TRAJECTORY))){
+          // add offset to head back into arena
+          // increase_nav_heading(heading_increment);
+  
+          // reset safe counter
+          obstacle_free_confidence = 0;
+  
+          // ensure direction is safe before continuing
+          navigation_state = SEARCH_FOR_SAFE_HEADING;
+        }
+        break;
+      default:
+        break;
+    }
+    end = clock();
+    cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
+    printf("loop time taken: %f\n", cpu_time_used);
   }
- 
-   // update our safe confidence using color threshold
-  if(safety_rating > safety_minimum){
-    obstacle_free_confidence++;
-  } else {
-    obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
-  }
-   
- 
-  // bound obstacle_free_confidence
-  Bound(obstacle_free_confidence, 0, max_trajectory_confidence);
-  printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
-
-  float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
-
-  printf("Current state: %s\n", 
-  navigation_state == SAFE ? "SAFE" :
-  navigation_state == OBSTACLE_FOUND ? "OBSTACLE_FOUND" :
-  navigation_state == SEARCH_FOR_SAFE_HEADING ? "SEARCH_FOR_SAFE_HEADING" :
-  navigation_state == OUT_OF_BOUNDS ? "OUT_OF_BOUNDS" : "UNKNOWN");
-
-   switch (navigation_state){
-     case SAFE:
-       // Move waypoint forward
-       moveWaypointForward(WP_TRAJECTORY, 1.0f * moveDistance);
-       if (!InsideObstacleZone(WaypointX(WP_TRAJECTORY),WaypointY(WP_TRAJECTORY))){
-         navigation_state = OUT_OF_BOUNDS;
-       } else if (obstacle_free_confidence == 0){
-         navigation_state = OBSTACLE_FOUND;
-       } else {
-         moveWaypointForward(WP_GOAL, moveDistance);
-         moveWaypointForward(WP_RETREAT, -1.0f * moveDistance);
-       }
- 
-       break;
-     case OBSTACLE_FOUND:
-       // stop
-       waypoint_move_here_2d(WP_GOAL);
-       waypoint_move_here_2d(WP_RETREAT);
-       waypoint_move_here_2d(WP_TRAJECTORY);
- 
-       // randomly select new search direction
-       //chooseRandomIncrementAvoidance();
- 
-       navigation_state = SEARCH_FOR_SAFE_HEADING;
- 
-       break;
-     case SEARCH_FOR_SAFE_HEADING:
-       int8_t heading_increment = get_heading_increment(column_ratings, safety_minimum);
-       printf("Heading increment: %d\n", heading_increment);
-
-       increase_nav_heading(heading_increment);
-       navigation_state = SAFE;
-       // make sure we have a couple of good readings before declaring the way safe
-      //  if (obstacle_free_confidence >= 2){
-      //    navigation_state = SAFE;
-      //  }
-       break;
-     case OUT_OF_BOUNDS:
-       increase_nav_heading(35.0f);
-       moveWaypointForward(WP_TRAJECTORY, 1.5f);
-       moveWaypointForward(WP_RETREAT, -1.0f);
- 
-       if (InsideObstacleZone(WaypointX(WP_TRAJECTORY),WaypointY(WP_TRAJECTORY))){
-         // add offset to head back into arena
-         // increase_nav_heading(heading_increment);
- 
-         // reset safe counter
-         obstacle_free_confidence = 0;
- 
-         // ensure direction is safe before continuing
-         navigation_state = SEARCH_FOR_SAFE_HEADING;
-       }
-       break;
-     default:
-       break;
-   }
-  end = clock();
-  cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
-  printf("Time taken: %f\n", cpu_time_used);
   return;
-  }
+ }
  
  
   /*
@@ -307,7 +325,7 @@
        int index = r * COLUMNS_TO_CONSIDER + c;
  
        // Add the grid cell value to the column's sum
-       column_sum += safety_grid[index];
+       column_sum += (float)safety_grid[index];
      }
  
      // Calculate the average safety rating for the current column
@@ -356,8 +374,8 @@
     uint8_t left_rating = column_ratings[left_index]; 
     uint8_t right_rating = column_ratings[right_index]; 
 
-    // Check the 5-neighbor range for the left side
-    for (int i = -2; i <= 2; i++) {
+    // Check the 7-neighbor range for the left side
+    for (int i = -3; i <= 3; i++) {
         if (column_ratings[left_index + i] < left_rating) {
             left_rating = column_ratings[left_index + i];
         }
