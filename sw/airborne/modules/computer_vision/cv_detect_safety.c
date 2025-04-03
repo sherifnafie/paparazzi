@@ -42907,19 +42907,7 @@ void model_inference_processed(const float input_image[1][240][520][3], float ou
 {
   float output_array[1][384];
 
-  clock_t start, end;
-  float cpu_time_used;
-
-  // Start time
-  start = clock();
-
   model_inference(input_image, output_array);
-
-  // End time
-  end = clock();
-
-  // Calculate the elapsed time
-  cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
 
   // print model ouput
   // printf("model output: \n");

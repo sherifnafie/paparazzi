@@ -98,15 +98,17 @@
  
  void object_avoider_periodic(void)
  {
-  for (u_int8_t i = 0; i < CHECK_RANGE; i++){
+  bool new = false;
+
+  for (uint8_t i = 0; i < CHECK_RANGE; i++){
     if (temp_grid[i] != safety_grid[i]){
       new = true;
       break;
     }
   }
-
+  
   if (new){
-    for (u_int8_t i = 0; i < CHECK_RANGE; i++){
+    for (uint8_t i = 0; i < CHECK_RANGE; i++){
       temp_grid[i] = safety_grid[i];
     }
     // printf("New safety grid: \n");
@@ -367,8 +369,8 @@
  
   // Iterate outward from the middle
   for (int offset = 0; offset <= 14; offset++) {
-    u_int8_t left_index = 15 - offset;
-    u_int8_t right_index = 16 + offset;
+    uint8_t left_index = 15 - offset;
+    uint8_t right_index = 16 + offset;
  
     // Compute MIN rating within a ±2 range using a loop
     uint8_t left_rating = column_ratings[left_index]; 
