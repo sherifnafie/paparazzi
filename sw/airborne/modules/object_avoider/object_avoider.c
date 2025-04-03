@@ -8,6 +8,7 @@
  #include "generated/airframe.h"
  #include "state.h"
  #include "modules/core/abi.h"
+ #include "guidance_h.h"
  #include <time.h>
  #include <stdio.h>
   
@@ -40,7 +41,7 @@
  static uint8_t chooseRandomIncrementAvoidance(void);
  void get_column_safety_ratings(uint8_t column_ratings[]);
  uint8_t get_safety_rating(uint8_t column_ratings[]);
- int8_t get_heading_increment(uint8_t column_ratings[]);
+ int8_t get_heading_increment(uint8_t column_ratings[], uint8_t threshold);
   
  enum navigation_state_t {
    SAFE,
@@ -55,12 +56,12 @@
  // define and initialise global variables
  enum navigation_state_t navigation_state = SEARCH_FOR_SAFE_HEADING;
  uint8_t safety_rating = 0;              // starting safety rating
- uint8_t safety_minimum = 70;            // minimum safety rating to be considered safe 
+ uint8_t safety_minimum = 80;            // minimum safety rating to be considered safe 
  int16_t obstacle_free_confidence = 0;   // a measure of how certain we are that the way ahead is safe.
 //  int8_t heading_increment = 10;          // heading angle increment [deg]
  float maxDistance = 2.25;               // max waypoint displacement [m]
  
- const int16_t max_trajectory_confidence = 5; // number of consecutive negative object detections to be sure we are obstacle free
+ const int16_t max_trajectory_confidence = 4; // number of consecutive negative object detections to be sure we are obstacle free
  
  
  float safety_grid[GRID_CONSIDERED];                    // tensor output from the neural network
@@ -95,46 +96,51 @@
  
  void object_avoider_periodic(void)
  {
-   // // print model ouput
-   // printf("safety grid: \n");
+  clock_t start, end;
+  float cpu_time_used;
+  // // print model ouput
+  // printf("safety grid: \n");
  
-   // // loop array
-   // for (int i = 0; i < 384; i++) {
-   //   printf("%f ", safety_grid[i]);
+  // // loop array
+  // for (int i = 0; i < 384; i++) {
+  //   printf("%f ", safety_grid[i]);
  
-   //   if ((i + 1) % 32 == 0) {
-   //     printf("\n");  // Print new line after every 16th element
-   //   }
-   // }
-   uint8_t column_ratings[COLUMNS_TO_CONSIDER]; // safety ratings for each column in the safety grid
-   get_column_safety_ratings(column_ratings);
-   int8_t heading_increment = get_heading_increment(column_ratings);
-   safety_rating = get_safety_rating(column_ratings);
+  //   if ((i + 1) % 32 == 0) {
+  //     printf("\n");  // Print new line after every 16th element
+  //   }
+  // }
+  start = clock();
+  // get safety ratings for each column in the safety grid
+  uint8_t column_ratings[COLUMNS_TO_CONSIDER];
+  get_column_safety_ratings(column_ratings);
+   
+  safety_rating = get_safety_rating(column_ratings);
 
-  //  printf("Column safety ratings: \n");
-  //  for (int i = 0; i < COLUMNS_TO_CONSIDER; i++) {
-  //    printf("%d ", column_ratings[i]);
-  //  }
-   printf("Heading increment: %d\n", heading_increment);
-   printf("Safety rating: %d\n", safety_rating);
+  printf("Column safety ratings: \n");
+  for (int i = 0; i < COLUMNS_TO_CONSIDER; i++) {
+    printf("%d ", column_ratings[i]);
+  }
+   
+  printf("Safety rating: %d\n", safety_rating);
  
-   // only evaluate our state machine if we are flying
-   if(!autopilot_in_flight()){
-     return;
-   }
+  // only evaluate our state machine if we are flying
+  if(!autopilot_in_flight()){
+    return;
+  }
  
    // update our safe confidence using color threshold
-   if(safety_rating > safety_minimum){
-     obstacle_free_confidence++;
-   } else {
-     obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
-   }
-   printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
+  if(safety_rating > safety_minimum){
+    obstacle_free_confidence++;
+  } else {
+    obstacle_free_confidence -= 2;  // be more cautious with positive obstacle detections
+  }
+   
  
-   // bound obstacle_free_confidence
-   Bound(obstacle_free_confidence, 0, max_trajectory_confidence);
- 
-   float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
+  // bound obstacle_free_confidence
+  Bound(obstacle_free_confidence, 0, max_trajectory_confidence);
+  printf("obstacle_free_confidence: %d\n", obstacle_free_confidence);
+
+  float moveDistance = fminf(maxDistance, 0.2f * obstacle_free_confidence);
 
   printf("Current state: %s\n", 
   navigation_state == SAFE ? "SAFE" :
@@ -169,6 +175,9 @@
  
        break;
      case SEARCH_FOR_SAFE_HEADING:
+       int8_t heading_increment = get_heading_increment(column_ratings, safety_minimum);
+       printf("Heading increment: %d\n", heading_increment);
+
        increase_nav_heading(heading_increment);
        navigation_state = SAFE;
        // make sure we have a couple of good readings before declaring the way safe
@@ -195,8 +204,11 @@
      default:
        break;
    }
-   return;
- }
+  end = clock();
+  cpu_time_used = ((float) (end - start)) / CLOCKS_PER_SEC;
+  printf("Time taken: %f\n", cpu_time_used);
+  return;
+  }
  
  
   /*
@@ -329,25 +341,51 @@
    return min_rating;
  }
 
- int8_t get_heading_increment(uint8_t column_ratings[]) 
+ int8_t get_heading_increment(uint8_t column_ratings[], uint8_t threshold) 
  {
-  uint8_t max_rating = 0;
-  uint8_t max_index = 1;
-  
-  // Iterate through the range 1 to 30 (ignoring columns 0 and 31)
-  for (int i = 1; i <= 30; i++) {
-      // Compute the sum of the column's rating and its neighbors
-      uint8_t current_rating = column_ratings[i] + column_ratings[i - 1] + column_ratings[i + 1];
-      
-      // Check if this is the highest rating found
-      if (current_rating > max_rating) {
-          max_rating = current_rating;
-          max_index = i;
-      }
+  int max_rating = 0;
+  uint8_t best_index = 15; // Default to center
+  int rating_threshold = threshold + 20; // Convert threshold to a rating value
+ 
+  // Iterate outward from the middle
+  for (int offset = 0; offset <= 14; offset++) {
+    u_int8_t left_index = 15 - offset;
+    u_int8_t right_index = 16 + offset;
+ 
+    // Compute MIN rating within a ±2 range using a loop
+    uint8_t left_rating = column_ratings[left_index]; 
+    uint8_t right_rating = column_ratings[right_index]; 
+
+    // Check the 5-neighbor range for the left side
+    for (int i = -2; i <= 2; i++) {
+        if (column_ratings[left_index + i] < left_rating) {
+            left_rating = column_ratings[left_index + i];
+        }
+        if (column_ratings[right_index + i] < right_rating) {
+            right_rating = column_ratings[right_index + i];
+        }
+    }
+
+    // Check left side
+    if (left_rating > max_rating) {
+      max_rating = left_rating;
+      best_index = left_index;
+    }
+ 
+    // Check right side
+    if (right_rating > max_rating) {
+      max_rating = right_rating;
+      best_index = right_index;
+    }
+ 
+    // Break early if we exceed the threshold
+    if (max_rating >= rating_threshold) {
+      break;
+    }
   }
-  
+ 
   // Compute the heading increment (ensure it stays within -90 to 90)
-  int8_t heading_increment = (int8_t)((INCREMENT_STEP / 2) * ((max_index * 2) - 31));
-  
+  int8_t heading_increment = (int8_t)((INCREMENT_STEP / 2) * ((best_index * 2) - 31));
+ 
   return heading_increment;
 }
